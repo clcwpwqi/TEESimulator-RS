@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class SecurityLevelInterceptor(
     private val original: IKeystoreSecurityLevel,
-    private val level: Int
+    private val level: Int,
 ) : BinderInterceptor() {
     companion object {
         private val generateKeyTransaction =
@@ -37,14 +37,11 @@ class SecurityLevelInterceptor(
         private val createOperationTransaction =
             getTransactCode(IKeystoreSecurityLevel.Stub::class.java, "createOperation")
 
-        @Keep
-        val keys = ConcurrentHashMap<Key, Info>()
+        @Keep val keys = ConcurrentHashMap<Key, Info>()
 
-        @Keep
-        val keyPairs = ConcurrentHashMap<Key, Pair<KeyPair, List<Certificate>>>()
+        @Keep val keyPairs = ConcurrentHashMap<Key, Pair<KeyPair, List<Certificate>>>()
 
-        @Keep
-        val skipLeafHacks = ConcurrentHashMap<Key, Boolean>()
+        @Keep val skipLeafHacks = ConcurrentHashMap<Key, Boolean>()
 
         @Keep
         fun getKeyResponse(uid: Int, alias: String): KeyEntryResponse? =
@@ -60,6 +57,7 @@ class SecurityLevelInterceptor(
     }
 
     data class Key(val uid: Int, val alias: String)
+
     data class Info(val keyPair: KeyPair, val response: KeyEntryResponse)
 
     override fun onPreTransact(
@@ -68,51 +66,80 @@ class SecurityLevelInterceptor(
         flags: Int,
         callingUid: Int,
         callingPid: Int,
-        data: Parcel
+        data: Parcel,
     ): Result {
         if (code == generateKeyTransaction) {
             Logger.i("intercept key gen uid=$callingUid pid=$callingPid")
-            kotlin.runCatching {
-                data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
-                val keyDescriptor =
-                    data.readTypedObject(KeyDescriptor.CREATOR) ?: return@runCatching
-                val attestationKeyDescriptor = data.readTypedObject(KeyDescriptor.CREATOR)
-                val params = data.createTypedArray(KeyParameter.CREATOR)!!
-                val aFlags = data.readInt()
-                val entropy = data.createByteArray()
-                val kgp = CertificateGen.KeyGenParameters(params)
-                if (PkgConfig.needGenerate(callingUid)) {
-                    val pair = CertificateGen.generateKeyPair(callingUid, keyDescriptor, attestationKeyDescriptor, kgp, level)
-                        ?: return@runCatching
-                    keyPairs[Key(callingUid, keyDescriptor.alias)] = Pair(pair.first, pair.second)
-                    val response = buildResponse(pair.second, kgp, attestationKeyDescriptor ?: keyDescriptor)
-                    keys[Key(callingUid, keyDescriptor.alias)] = Info(pair.first, response)
-                    val p = Parcel.obtain()
-                    p.writeNoException()
-                    p.writeTypedObject(response.metadata, 0)
-                    return OverrideReply(0, p)
-                } else if (PkgConfig.needHack(callingUid)) {
-                    if ((kgp.purpose.contains(7)) || (attestationKeyDescriptor != null)) {
-                        Logger.i("Generating key in generation mode for attestation: uid=$callingUid alias=${keyDescriptor.alias}")
-                        val pair = CertificateGen.generateKeyPair(callingUid, keyDescriptor, attestationKeyDescriptor, kgp, level)
-                            ?: return@runCatching
-                        keyPairs[Key(callingUid, keyDescriptor.alias)] = Pair(pair.first, pair.second)
-                        val response = buildResponse(pair.second, kgp, attestationKeyDescriptor ?: keyDescriptor)
+            kotlin
+                .runCatching {
+                    data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
+                    val keyDescriptor =
+                        data.readTypedObject(KeyDescriptor.CREATOR) ?: return@runCatching
+                    val attestationKeyDescriptor = data.readTypedObject(KeyDescriptor.CREATOR)
+                    val params = data.createTypedArray(KeyParameter.CREATOR)!!
+                    val aFlags = data.readInt()
+                    val entropy = data.createByteArray()
+                    val kgp = CertificateGen.KeyGenParameters(params)
+                    if (PkgConfig.needGenerate(callingUid)) {
+                        val pair =
+                            CertificateGen.generateKeyPair(
+                                callingUid,
+                                keyDescriptor,
+                                attestationKeyDescriptor,
+                                kgp,
+                                level,
+                            ) ?: return@runCatching
+                        keyPairs[Key(callingUid, keyDescriptor.alias)] =
+                            Pair(pair.first, pair.second)
+                        val response =
+                            buildResponse(
+                                pair.second,
+                                kgp,
+                                attestationKeyDescriptor ?: keyDescriptor,
+                            )
                         keys[Key(callingUid, keyDescriptor.alias)] = Info(pair.first, response)
-                        SecurityLevelInterceptor.skipLeafHacks[Key(callingUid, keyDescriptor.alias)] = true
                         val p = Parcel.obtain()
                         p.writeNoException()
                         p.writeTypedObject(response.metadata, 0)
                         return OverrideReply(0, p)
-                    } else {
-                        skipLeafHacks.remove(Key(callingUid, keyDescriptor.alias))
-                        Logger.i("Cleared skip flag for non-attestation key: uid=$callingUid alias=${keyDescriptor.alias}")
-                        return Skip
+                    } else if (PkgConfig.needHack(callingUid)) {
+                        if ((kgp.purpose.contains(7)) || (attestationKeyDescriptor != null)) {
+                            Logger.i(
+                                "Generating key in generation mode for attestation: uid=$callingUid alias=${keyDescriptor.alias}"
+                            )
+                            val pair =
+                                CertificateGen.generateKeyPair(
+                                    callingUid,
+                                    keyDescriptor,
+                                    attestationKeyDescriptor,
+                                    kgp,
+                                    level,
+                                ) ?: return@runCatching
+                            keyPairs[Key(callingUid, keyDescriptor.alias)] =
+                                Pair(pair.first, pair.second)
+                            val response =
+                                buildResponse(
+                                    pair.second,
+                                    kgp,
+                                    attestationKeyDescriptor ?: keyDescriptor,
+                                )
+                            keys[Key(callingUid, keyDescriptor.alias)] = Info(pair.first, response)
+                            SecurityLevelInterceptor.skipLeafHacks[
+                                    Key(callingUid, keyDescriptor.alias)] = true
+                            val p = Parcel.obtain()
+                            p.writeNoException()
+                            p.writeTypedObject(response.metadata, 0)
+                            return OverrideReply(0, p)
+                        } else {
+                            skipLeafHacks.remove(Key(callingUid, keyDescriptor.alias))
+                            Logger.i(
+                                "Cleared skip flag for non-attestation key: uid=$callingUid alias=${keyDescriptor.alias}"
+                            )
+                            return Skip
+                        }
                     }
                 }
-            }.onFailure {
-                Logger.e("parse key gen request", it)
-            }
+                .onFailure { Logger.e("parse key gen request", it) }
         }
         return Skip
     }
@@ -120,7 +147,7 @@ class SecurityLevelInterceptor(
     private fun buildResponse(
         chain: List<Certificate>,
         params: CertificateGen.KeyGenParameters,
-        descriptor: KeyDescriptor
+        descriptor: KeyDescriptor,
     ): KeyEntryResponse {
         val response = KeyEntryResponse()
         val metadata = KeyMetadata()

@@ -25,71 +25,79 @@ object PkgConfig {
     private val keyboxRegex = Regex("^\\[([a-zA-Z0-9_.-]+\\.xml)]$")
     private const val DEFAULT_KEYBOX_FILE = "keybox.xml"
 
-    fun getKeyboxFileForUid(callingUid: Int): String = runCatching {
-        val ps = getPm()?.getPackagesForUid(callingUid) ?: return DEFAULT_KEYBOX_FILE
-        for (pkg in ps) {
-            packageKeyboxes[pkg]?.let { return it }
-        }
-        return DEFAULT_KEYBOX_FILE
-    }.getOrDefault(DEFAULT_KEYBOX_FILE)
+    fun getKeyboxFileForUid(callingUid: Int): String =
+        runCatching {
+                val ps = getPm()?.getPackagesForUid(callingUid) ?: return DEFAULT_KEYBOX_FILE
+                for (pkg in ps) {
+                    packageKeyboxes[pkg]?.let {
+                        return it
+                    }
+                }
+                return DEFAULT_KEYBOX_FILE
+            }
+            .getOrDefault(DEFAULT_KEYBOX_FILE)
 
     enum class Mode {
-        AUTO, LEAF_HACK, GENERATE
+        AUTO,
+        LEAF_HACK,
+        GENERATE,
     }
 
-    private fun updateTargetPackages(f: File?) = runCatching {
-        hackPackages.clear()
-        generatePackages.clear()
-        packageModes.clear()
-        packageKeyboxes.clear()
+    private fun updateTargetPackages(f: File?) =
+        runCatching {
+                hackPackages.clear()
+                generatePackages.clear()
+                packageModes.clear()
+                packageKeyboxes.clear()
 
-        var currentKeyboxFile = DEFAULT_KEYBOX_FILE
+                var currentKeyboxFile = DEFAULT_KEYBOX_FILE
 
-        f?.readLines()?.forEach { line ->
-            val n = line.trim()
-            if (n.isBlank() || n.startsWith("#")) {
-                return@forEach // Skip comments and empty lines
-            }
+                f?.readLines()?.forEach { line ->
+                    val n = line.trim()
+                    if (n.isBlank() || n.startsWith("#")) {
+                        return@forEach // Skip comments and empty lines
+                    }
 
-            val matchResult = keyboxRegex.find(n)
-            if (matchResult != null) {
-                currentKeyboxFile = matchResult.groupValues[1]
-                Logger.i("Switched to keybox file: $currentKeyboxFile for subsequent packages")
-                return@forEach
-            }
+                    val matchResult = keyboxRegex.find(n)
+                    if (matchResult != null) {
+                        currentKeyboxFile = matchResult.groupValues[1]
+                        Logger.i(
+                            "Switched to keybox file: $currentKeyboxFile for subsequent packages"
+                        )
+                        return@forEach
+                    }
 
-            when {
-                n.endsWith("!") -> {
-                    val pkg = n.removeSuffix("!").trim()
-                    generatePackages.add(pkg)
-                    packageModes[pkg] = Mode.GENERATE
-                    packageKeyboxes[pkg] = currentKeyboxFile
+                    when {
+                        n.endsWith("!") -> {
+                            val pkg = n.removeSuffix("!").trim()
+                            generatePackages.add(pkg)
+                            packageModes[pkg] = Mode.GENERATE
+                            packageKeyboxes[pkg] = currentKeyboxFile
+                        }
+                        n.endsWith("?") -> {
+                            val pkg = n.removeSuffix("?").trim()
+                            hackPackages.add(pkg)
+                            packageModes[pkg] = Mode.LEAF_HACK
+                            packageKeyboxes[pkg] = currentKeyboxFile
+                        }
+                        else -> {
+                            // Auto mode
+                            packageModes[n] = Mode.AUTO
+                            packageKeyboxes[n] = currentKeyboxFile
+                        }
+                    }
                 }
-                n.endsWith("?") -> {
-                    val pkg = n.removeSuffix("?").trim()
-                    hackPackages.add(pkg)
-                    packageModes[pkg] = Mode.LEAF_HACK
-                    packageKeyboxes[pkg] = currentKeyboxFile
-                }
-                else -> {
-                    // Auto mode
-                    packageModes[n] = Mode.AUTO
-                    packageKeyboxes[n] = currentKeyboxFile
-                }
+                Logger.i(
+                    "update hack packages: $hackPackages, generate packages=$generatePackages, packageModes=$packageModes, , packageKeyboxes=$packageKeyboxes"
+                )
             }
-        }
-        Logger.i("update hack packages: $hackPackages, generate packages=$generatePackages, packageModes=$packageModes, , packageKeyboxes=$packageKeyboxes")
-    }.onFailure {
-        Logger.e("failed to update target files", it)
-    }
+            .onFailure { Logger.e("failed to update target files", it) }
 
     // This function is now deprecated in favor of a more dynamic approach, but kept for simplicity.
     // The key logic is now in KeyBoxUtils which will be called from the interceptors.
-    private fun updateKeyBox(f: File?) = runCatching {
-        KeyBoxUtils.readFromXml(f?.readText())
-    }.onFailure {
-        Logger.e("failed to update keybox", it)
-    }
+    private fun updateKeyBox(f: File?) =
+        runCatching { KeyBoxUtils.readFromXml(f?.readText()) }
+            .onFailure { Logger.e("failed to update keybox", it) }
 
     const val CONFIG_PATH = "/data/adb/tricky_store"
     private const val TARGET_FILE = "target.txt"
@@ -97,15 +105,14 @@ object PkgConfig {
     private const val PATCHLEVEL_FILE = "security_patch.txt"
     private val root = File(CONFIG_PATH)
 
-    @Volatile
-    private var teeBroken: Boolean? = null
+    @Volatile private var teeBroken: Boolean? = null
 
     private fun storeTEEStatus(root: File) {
         val statusFile = File(root, TEE_STATUS_FILE)
         teeBroken = !TEEStatus
         try {
             statusFile.writeText("teeBroken=${teeBroken}")
-            Logger.i("TEE status written to $statusFile: teeBroken=$teeBroken") 
+            Logger.i("TEE status written to $statusFile: teeBroken=$teeBroken")
         } catch (e: Exception) {
             Logger.e("Failed to write TEE status: ${e.message}")
         }
@@ -124,16 +131,21 @@ object PkgConfig {
     object ConfigObserver : FileObserver(root, CLOSE_WRITE or DELETE or MOVED_FROM or MOVED_TO) {
         override fun onEvent(event: Int, path: String?) {
             path ?: return
-            val f = when (event) {
-                CLOSE_WRITE, MOVED_TO -> File(root, path)
-                DELETE, MOVED_FROM -> null
-                else -> return
-            }
+            val f =
+                when (event) {
+                    CLOSE_WRITE,
+                    MOVED_TO -> File(root, path)
+                    DELETE,
+                    MOVED_FROM -> null
+                    else -> return
+                }
             when {
                 path == TARGET_FILE -> updateTargetPackages(f)
                 path.endsWith(".xml") -> {
-                    // This is a simplification. A more robust solution would be to reload the specific keybox if it's in use.
-                    // For now, we assume any XML change might affect the active keyboxes, prompting a reload where needed.
+                    // This is a simplification. A more robust solution would be to reload the
+                    // specific keybox if it's in use.
+                    // For now, we assume any XML change might affect the active keyboxes, prompting
+                    // a reload where needed.
                     // The main logic for loading is now handled dynamically in KeyBoxUtils.
                     Logger.i("Keybox file $path changed. It will be re-read on next use.")
                 }
@@ -163,12 +175,13 @@ object PkgConfig {
     }
 
     private var iPm: IPackageManager? = null
-    private val packageManagerDeathRecipient = object : IBinder.DeathRecipient {
-        override fun binderDied() {
-            (iPm as? IInterface)?.asBinder()?.unlinkToDeath(this, 0)
-            iPm = null
+    private val packageManagerDeathRecipient =
+        object : IBinder.DeathRecipient {
+            override fun binderDied() {
+                (iPm as? IInterface)?.asBinder()?.unlinkToDeath(this, 0)
+                iPm = null
+            }
         }
-    }
 
     fun getPm(): IPackageManager? {
         if (iPm == null) {
@@ -179,72 +192,83 @@ object PkgConfig {
         return iPm
     }
 
-    fun needHack(callingUid: Int): Boolean = kotlin.runCatching {
-        val ps = getPm()?.getPackagesForUid(callingUid) ?: return false
-        if (teeBroken == null) loadTEEStatus(root)
-        for (pkg in ps) {
-            when (packageModes[pkg]) {
-                Mode.LEAF_HACK -> return true
-                Mode.AUTO -> {
-                    if (teeBroken == false) return true
+    fun needHack(callingUid: Int): Boolean =
+        kotlin
+            .runCatching {
+                val ps = getPm()?.getPackagesForUid(callingUid) ?: return false
+                if (teeBroken == null) loadTEEStatus(root)
+                for (pkg in ps) {
+                    when (packageModes[pkg]) {
+                        Mode.LEAF_HACK -> return true
+                        Mode.AUTO -> {
+                            if (teeBroken == false) return true
+                        }
+                        else -> {}
+                    }
                 }
-                else -> {}
+                return false
             }
-        }
-        return false
-    }.onFailure { Logger.e("failed to get packages", it) }.getOrNull() ?: false
+            .onFailure { Logger.e("failed to get packages", it) }
+            .getOrNull() ?: false
 
-    fun needGenerate(callingUid: Int): Boolean = kotlin.runCatching {
-        val ps = getPm()?.getPackagesForUid(callingUid) ?: return false
-        if (teeBroken == null) loadTEEStatus(root)
-        for (pkg in ps) {
-            when (packageModes[pkg]) {
-                Mode.GENERATE -> return true
-                Mode.AUTO -> {
-                    if (teeBroken == true) return true
+    fun needGenerate(callingUid: Int): Boolean =
+        kotlin
+            .runCatching {
+                val ps = getPm()?.getPackagesForUid(callingUid) ?: return false
+                if (teeBroken == null) loadTEEStatus(root)
+                for (pkg in ps) {
+                    when (packageModes[pkg]) {
+                        Mode.GENERATE -> return true
+                        Mode.AUTO -> {
+                            if (teeBroken == true) return true
+                        }
+                        else -> {}
+                    }
                 }
-                else -> {}
+                return false
             }
-        }
-        return false
-    }.onFailure { Logger.e("failed to get packages", it) }.getOrNull() ?: false
+            .onFailure { Logger.e("failed to get packages", it) }
+            .getOrNull() ?: false
 
-    @Volatile
-    var _customPatchLevel: CustomPatchLevel? = null
+    @Volatile var _customPatchLevel: CustomPatchLevel? = null
 
-    fun updatePatchLevel(f: File?) = runCatching {
-        if (f == null || !f.exists()) {
-            _customPatchLevel = null
-            return@runCatching
-        }
-        val lines = f.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
-        if (lines.isEmpty()) {
-            _customPatchLevel = null
-            return@runCatching
-        }
-        if (lines.size == 1 && !lines[0].contains("=")) {
-            _customPatchLevel = CustomPatchLevel(all = lines[0])
-            return@runCatching
-        }
-        val map = mutableMapOf<String, String>()
-        for (line in lines) {
-            val idx = line.indexOf('=')
-            if (idx > 0) {
-                val key = line.substring(0, idx).trim().lowercase()
-                val value = line.substring(idx + 1).trim()
-                map[key] = value
+    fun updatePatchLevel(f: File?) =
+        runCatching {
+                if (f == null || !f.exists()) {
+                    _customPatchLevel = null
+                    return@runCatching
+                }
+                val lines =
+                    f.readLines()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() && !it.startsWith("#") }
+                if (lines.isEmpty()) {
+                    _customPatchLevel = null
+                    return@runCatching
+                }
+                if (lines.size == 1 && !lines[0].contains("=")) {
+                    _customPatchLevel = CustomPatchLevel(all = lines[0])
+                    return@runCatching
+                }
+                val map = mutableMapOf<String, String>()
+                for (line in lines) {
+                    val idx = line.indexOf('=')
+                    if (idx > 0) {
+                        val key = line.substring(0, idx).trim().lowercase()
+                        val value = line.substring(idx + 1).trim()
+                        map[key] = value
+                    }
+                }
+                val all = map["all"]
+                _customPatchLevel =
+                    CustomPatchLevel(
+                        system = map["system"] ?: all,
+                        vendor = map["vendor"] ?: all,
+                        boot = map["boot"] ?: all,
+                        all = all,
+                    )
             }
-        }
-        val all = map["all"]
-        _customPatchLevel = CustomPatchLevel(
-            system = map["system"] ?: all,
-            vendor = map["vendor"] ?: all,
-            boot = map["boot"] ?: all,
-            all = all
-        )
-    }.onFailure {
-        Logger.e("failed to update patch level", it)
-    }
+            .onFailure { Logger.e("failed to update patch level", it) }
 
     private fun waitAndGetSystemService(name: String): IBinder? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -270,5 +294,5 @@ data class CustomPatchLevel(
     val system: String? = null,
     val vendor: String? = null,
     val boot: String? = null,
-    val all: String? = null
+    val all: String? = null,
 )

@@ -4,6 +4,7 @@ annotation = "1.9.1"
 jdk18on = "1.81"
 kotlin = "2.2.10"
 libcxx = "28.1.13356709"
+ktfmt = "0.25.0"
 
 [libraries]
 annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
@@ -14,4 +15,5 @@ org-lsposed-libcxx-libcxx = { module = "org.lsposed.libcxx:libcxx", version.ref 
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+ktfmt = { id = "com.ncorti.ktfmt.gradle", version.ref = "ktfmt" }
 

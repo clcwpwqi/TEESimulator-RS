@@ -28,23 +28,25 @@ object Keystore2Interceptor : BaseKeystoreInterceptor() {
         getTransactCode(IKeystoreService.Stub::class.java, "getKeyEntry")
     private val deleteKeyTransaction =
         getTransactCode(IKeystoreService.Stub::class.java, "deleteKey")
-    
+
     override val serviceName = "android.system.keystore2.IKeystoreService/default"
     override val processName = "keystore2"
     override val injectionCommand = "exec ./inject `pidof keystore2` libTrickyStoreOSS.so entry"
 
     private var teeInterceptor: SecurityLevelInterceptor? = null
     private var strongBoxInterceptor: SecurityLevelInterceptor? = null
-    
+
     override fun onInterceptorSetup(service: IBinder, backdoor: IBinder) {
         setupSecurityLevelInterceptors(service, backdoor)
     }
-    
+
     private fun setupSecurityLevelInterceptors(service: IBinder, backdoor: IBinder) {
         val ks = IKeystoreService.Stub.asInterface(service)
-        
-        val tee = kotlin.runCatching { ks.getSecurityLevel(SecurityLevel.TRUSTED_ENVIRONMENT) }
-            .getOrNull()
+
+        val tee =
+            kotlin
+                .runCatching { ks.getSecurityLevel(SecurityLevel.TRUSTED_ENVIRONMENT) }
+                .getOrNull()
         if (tee != null) {
             Logger.i("Registering for TEE SecurityLevel: $tee")
             val interceptor = SecurityLevelInterceptor(tee, SecurityLevel.TRUSTED_ENVIRONMENT)
@@ -53,9 +55,9 @@ object Keystore2Interceptor : BaseKeystoreInterceptor() {
         } else {
             Logger.i("No TEE SecurityLevel found")
         }
-        
-        val strongBox = kotlin.runCatching { ks.getSecurityLevel(SecurityLevel.STRONGBOX) }
-            .getOrNull()
+
+        val strongBox =
+            kotlin.runCatching { ks.getSecurityLevel(SecurityLevel.STRONGBOX) }.getOrNull()
         if (strongBox != null) {
             Logger.i("Registering for StrongBox SecurityLevel: $strongBox")
             val interceptor = SecurityLevelInterceptor(strongBox, SecurityLevel.STRONGBOX)
@@ -72,40 +74,62 @@ object Keystore2Interceptor : BaseKeystoreInterceptor() {
         flags: Int,
         callingUid: Int,
         callingPid: Int,
-        data: Parcel
+        data: Parcel,
     ): Result {
         if (code == getKeyEntryTransaction) {
             if (KeyBoxUtils.hasKeyboxes()) {
-                Logger.d("intercept pre  $target uid=$callingUid pid=$callingPid dataSz=${data.dataSize()}")
+                Logger.d(
+                    "intercept pre  $target uid=$callingUid pid=$callingPid dataSz=${data.dataSize()}"
+                )
                 try {
                     data.enforceInterface(IKeystoreService.DESCRIPTOR)
                     val descriptor = data.readTypedObject(KeyDescriptor.CREATOR) ?: return Skip
                     if (PkgConfig.needGenerate(callingUid)) {
-                        val response = SecurityLevelInterceptor.getKeyResponse(callingUid, descriptor.alias)
+                        val response =
+                            SecurityLevelInterceptor.getKeyResponse(callingUid, descriptor.alias)
                         if (response != null) {
-                            Logger.i("Found generated response for uid=$callingUid alias=${descriptor.alias}")
+                            Logger.i(
+                                "Found generated response for uid=$callingUid alias=${descriptor.alias}"
+                            )
                             return createTypedObjectReply(response)
                         } else {
-                            Logger.e("No generated response found for uid=$callingUid alias=${descriptor.alias}")
+                            Logger.e(
+                                "No generated response found for uid=$callingUid alias=${descriptor.alias}"
+                            )
                             val nullParcel = Parcel.obtain()
                             nullParcel.writeTypedObject(null as KeyEntryResponse?, 0)
                             return OverrideReply(0, nullParcel)
                         }
                     } else if (PkgConfig.needHack(callingUid)) {
-                        if (SecurityLevelInterceptor.shouldSkipLeafHack(callingUid, descriptor.alias)) {
+                        if (
+                            SecurityLevelInterceptor.shouldSkipLeafHack(
+                                callingUid,
+                                descriptor.alias,
+                            )
+                        ) {
                             Logger.i("skip leaf hack for uid=$callingUid alias=${descriptor.alias}")
-                            val response = SecurityLevelInterceptor.getKeyResponse(callingUid, descriptor.alias)
+                            val response =
+                                SecurityLevelInterceptor.getKeyResponse(
+                                    callingUid,
+                                    descriptor.alias,
+                                )
                             if (response != null) {
-                                Logger.i("Found generated response for uid=$callingUid alias=${descriptor.alias}")
+                                Logger.i(
+                                    "Found generated response for uid=$callingUid alias=${descriptor.alias}"
+                                )
                                 return createTypedObjectReply(response)
                             } else {
-                                Logger.e("No generated response found for uid=$callingUid alias=${descriptor.alias}")
+                                Logger.e(
+                                    "No generated response found for uid=$callingUid alias=${descriptor.alias}"
+                                )
                                 val nullParcel = Parcel.obtain()
                                 nullParcel.writeTypedObject(null as KeyEntryResponse?, 0)
                                 return OverrideReply(0, nullParcel)
                             }
                         } else {
-                            Logger.i("proceeding with leaf hack for uid=$callingUid alias=${descriptor.alias}")
+                            Logger.i(
+                                "proceeding with leaf hack for uid=$callingUid alias=${descriptor.alias}"
+                            )
                             return Continue
                         }
                     }
@@ -127,12 +151,14 @@ object Keystore2Interceptor : BaseKeystoreInterceptor() {
         callingPid: Int,
         data: Parcel,
         reply: Parcel?,
-        resultCode: Int
+        resultCode: Int,
     ): Result {
         if (target != keystore || reply == null) return Skip
         if (reply.hasException()) return Skip
         val p = Parcel.obtain()
-        Logger.d("intercept post $target uid=$callingUid pid=$callingPid dataSz=${data.dataSize()} replySz=${reply.dataSize()}")
+        Logger.d(
+            "intercept post $target uid=$callingUid pid=$callingPid dataSz=${data.dataSize()} replySz=${reply.dataSize()}"
+        )
 
         if (code == deleteKeyTransaction && resultCode == 0) {
             data.enforceInterface("android.system.keystore2.IKeystoreService")
@@ -140,7 +166,9 @@ object Keystore2Interceptor : BaseKeystoreInterceptor() {
             val keyDescriptor = data.readTypedObject(KeyDescriptor.CREATOR)
             if (keyDescriptor == null || keyDescriptor.domain == 0) return Skip
 
-            SecurityLevelInterceptor.keys.remove(SecurityLevelInterceptor.Key(callingUid, keyDescriptor.alias))
+            SecurityLevelInterceptor.keys.remove(
+                SecurityLevelInterceptor.Key(callingUid, keyDescriptor.alias)
+            )
 
             return Skip
         } else if (code == getKeyEntryTransaction) {
@@ -149,7 +177,7 @@ object Keystore2Interceptor : BaseKeystoreInterceptor() {
                 val response = reply.readTypedObject(KeyEntryResponse.CREATOR)
                 if (response != null) {
                     val chain = CertificateUtils.run { response.getCertificateChain() }
-                if (chain != null) {
+                    if (chain != null) {
                         val newChain = CertificateHack.hackCertificateChain(chain, callingUid)
                         response.putCertificateChain(newChain).getOrThrow()
                         Logger.i("Hacked certificate for uid=$callingUid")

@@ -3,25 +3,23 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import java.io.ByteArrayOutputStream
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ktfmt)
 }
+
+ktfmt { kotlinLangStyle() }
 
 fun String.execute(currentWorkingDir: File = File("./")): String {
     val parts = this.split("\\s+".toRegex())
-    val process = ProcessBuilder(parts)
-        .directory(currentWorkingDir)
-        .redirectErrorStream(true)
-        .start()
+    val process =
+        ProcessBuilder(parts).directory(currentWorkingDir).redirectErrorStream(true).start()
 
     val output = process.inputStream.bufferedReader().readText()
     process.waitFor()
     return output.trim()
 }
-
 
 val gitCommitCount = "git rev-list HEAD --count".execute().toInt()
 val gitCommitHash = "git rev-parse --verify --short HEAD".execute()
@@ -61,16 +59,14 @@ android {
         }
     }
 
-    buildFeatures {
-        prefab = true
-    }
+    buildFeatures { prefab = true }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
@@ -85,9 +81,7 @@ android {
             version = "3.28.0+"
         }
     }
-    buildFeatures {
-        viewBinding = false
-    }
+    buildFeatures { viewBinding = false }
 }
 
 dependencies {
@@ -102,15 +96,15 @@ afterEvaluate {
         val variantName = variant.name
         val capitalized = variantName.replaceFirstChar { it.uppercase() }
         val tempModuleDir = project.layout.buildDirectory.dir("tmp/module-${variantName}")
-        
+
         tasks.register("copyFiles${capitalized}") {
             dependsOn("assemble${capitalized}")
             val moduleFolder = project.rootDir.resolve("module")
             val buildDir = project.layout.buildDirectory
-            
+
             doLast {
                 val isDebug = variantName.contains("debug", ignoreCase = true)
-                //val apkFile = variant.outputs.first().outputFile
+                // val apkFile = variant.outputs.first().outputFile
 
                 listOf("service.apk", "classes.dex").forEach { fileName ->
                     val oldFile = moduleFolder.resolve(fileName)
@@ -118,23 +112,32 @@ afterEvaluate {
                 }
 
                 // Select source file based on build type
-                val sourceFile = if (isDebug) {
-                    variant.outputs.first().outputFile
-                } else {
-                    buildDir.get().asFile.resolve("intermediates/dex/release/minifyReleaseWithR8/classes.dex")
-                }
+                val sourceFile =
+                    if (isDebug) {
+                        variant.outputs.first().outputFile
+                    } else {
+                        buildDir
+                            .get()
+                            .asFile
+                            .resolve("intermediates/dex/release/minifyReleaseWithR8/classes.dex")
+                    }
 
                 val destFileName = if (isDebug) "service.apk" else "classes.dex"
                 sourceFile.copyTo(moduleFolder.resolve(destFileName), overwrite = true)
 
-                val soDir = buildDir.get()
-                    .asFile
-                    .resolve("intermediates/stripped_native_libs/$variantName/strip${capitalized}DebugSymbols/out/lib")
-                
-                //apkFile.copyTo(moduleFolder.resolve("service.apk"), overwrite = true)
-                
+                val soDir =
+                    buildDir
+                        .get()
+                        .asFile
+                        .resolve(
+                            "intermediates/stripped_native_libs/$variantName/strip${capitalized}DebugSymbols/out/lib"
+                        )
+
+                // apkFile.copyTo(moduleFolder.resolve("service.apk"), overwrite = true)
+
                 val allowedLibs = setOf("libinject.so", "libTrickyStoreOSS.so")
-                soDir.walk()
+                soDir
+                    .walk()
                     .filter { it.isFile && it.name in allowedLibs }
                     .forEach { soFile ->
                         val abiFolder = soFile.parentFile.name
@@ -143,21 +146,22 @@ afterEvaluate {
                     }
             }
         }
-        
+
         // Prepare temp directory with all files
         tasks.register("prepareModuleFiles${capitalized}") {
             dependsOn("copyFiles${capitalized}")
             val sourceDir = project.rootDir.resolve("module")
-            
+
             doLast {
                 val tempDir = tempModuleDir.get().asFile
-                
+
                 // Clean and create temp directory
                 tempDir.deleteRecursively()
                 tempDir.mkdirs()
-                
+
                 // Copy all files except module.prop
-                sourceDir.walkTopDown()
+                sourceDir
+                    .walkTopDown()
                     .filter { it.isFile && it.name != "module.prop" }
                     .forEach { sourceFile ->
                         val relativePath = sourceFile.relativeTo(sourceDir)
@@ -165,18 +169,22 @@ afterEvaluate {
                         destFile.parentFile.mkdirs()
                         sourceFile.copyTo(destFile, overwrite = true)
                     }
-                
+
                 // Process module.prop
                 val sourceProp = sourceDir.resolve("module.prop")
                 val destProp = tempDir.resolve("module.prop")
                 val content = sourceProp.readText()
-                val processedContent = content
-                    .replace("REPLACEMEVERCODE", gitCommitCount.toString())
-                    .replace("REPLACEMEVER", "$verName ($gitCommitCount-$gitCommitHash-$variantName)")
+                val processedContent =
+                    content
+                        .replace("REPLACEMEVERCODE", gitCommitCount.toString())
+                        .replace(
+                            "REPLACEMEVER",
+                            "$verName ($gitCommitCount-$gitCommitHash-$variantName)",
+                        )
                 destProp.writeText(processedContent)
             }
         }
-        
+
         // Zip task uses the temp directory
         val zipTask =
             tasks.register<Zip>("zip${capitalized}") {
@@ -263,7 +271,7 @@ afterEvaluate {
             commandLine("adb", "reboot")
             description = "Installs the $variantName module via APatch and reboots."
         }
-        
+
         tasks["assemble${capitalized}"].finalizedBy("zip${capitalized}")
     }
 }
