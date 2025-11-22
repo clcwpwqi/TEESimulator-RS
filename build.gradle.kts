@@ -11,6 +11,7 @@ tasks.register<KtfmtFormatTask>("format") {
     source = project.fileTree(rootDir)
     include("*.gradle.kts", "*/*.gradle.kts")
     dependsOn(":stub:ktfmtFormat")
+    dependsOn(":app:ktfmtFormat")
 }
 
 ktfmt { kotlinLangStyle() }

@@ -17,3 +17,5 @@ dependencyResolutionManagement {
 rootProject.name = "TEESimulator"
 
 include(":stub")
+
+include(":app")
