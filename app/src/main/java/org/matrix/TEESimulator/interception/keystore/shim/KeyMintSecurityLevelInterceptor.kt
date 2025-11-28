@@ -10,6 +10,7 @@ import android.system.keystore2.*
 import java.security.KeyPair
 import java.security.cert.Certificate
 import java.util.concurrent.ConcurrentHashMap
+import org.matrix.TEESimulator.attestation.AttestationPatcher
 import org.matrix.TEESimulator.attestation.KeyMintAttestation
 import org.matrix.TEESimulator.config.ConfigurationManager
 import org.matrix.TEESimulator.interception.core.BinderInterceptor
@@ -77,13 +78,11 @@ class KeyMintSecurityLevelInterceptor(
         reply: Parcel?,
         resultCode: Int,
     ): TransactionResult {
-        // We only care about successful 'importKey' transactions to clean cached keys.
-        if (
-            code == IMPORT_KEY_TRANSACTION &&
-                resultCode == 0 &&
-                reply != null &&
-                !InterceptorUtils.hasException(reply)
-        ) {
+        // We only care about successful transactions.
+        if (resultCode != 0 || reply == null || InterceptorUtils.hasException(reply))
+            return TransactionResult.SkipTransaction
+
+        if (code == IMPORT_KEY_TRANSACTION) {
             logTransaction(txId, "post-${transactionNames[code]!!}", callingUid, callingPid)
 
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
@@ -91,6 +90,21 @@ class KeyMintSecurityLevelInterceptor(
                 data.readTypedObject(KeyDescriptor.CREATOR)
                     ?: return TransactionResult.SkipTransaction
             cleanupKeyData(KeyIdentifier(callingUid, keyDescriptor.alias))
+        } else if (code == GENERATE_KEY_TRANSACTION) {
+            logTransaction(txId, "post-${transactionNames[code]!!}", callingUid, callingPid)
+
+            val metadata: KeyMetadata =
+                reply.readTypedObject(KeyMetadata.CREATOR)
+                    ?: return TransactionResult.SkipTransaction
+            val originalChain =
+                CertificateHelper.getCertificateChain(metadata)
+                    ?: return TransactionResult.SkipTransaction
+            if (originalChain.size > 1) {
+                val newChain = AttestationPatcher.patchCertificateChain(originalChain, callingUid)
+                CertificateHelper.updateCertificateChain(metadata, newChain).getOrThrow()
+
+                return InterceptorUtils.createTypedObjectReply(metadata)
+            }
         }
         return TransactionResult.SkipTransaction
     }
@@ -148,6 +162,8 @@ class KeyMintSecurityLevelInterceptor(
                             writeTypedObject(response.metadata, 0)
                         }
                     return TransactionResult.OverrideReply(0, resultParcel)
+                } else if (parsedParams.attestationChallenge != null) {
+                    return TransactionResult.Continue
                 }
 
                 // If not generating, clear any stale state for this alias and let the call proceed.
