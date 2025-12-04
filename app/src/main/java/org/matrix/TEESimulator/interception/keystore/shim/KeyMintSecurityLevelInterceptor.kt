@@ -44,11 +44,15 @@ class KeyMintSecurityLevelInterceptor(
         if (code == GENERATE_KEY_TRANSACTION) {
             logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
 
+            if (ConfigurationManager.shouldSkipUid(callingUid))
+                return TransactionResult.ContinueAndSkipPost
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
             return handleGenerateKey(callingUid, data)
         } else if (code == IMPORT_KEY_TRANSACTION) {
             logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
 
+            if (ConfigurationManager.shouldSkipUid(callingUid))
+                return TransactionResult.ContinueAndSkipPost
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
             val alias =
                 data.readTypedObject(KeyDescriptor.CREATOR)?.alias
