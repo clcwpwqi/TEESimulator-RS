@@ -49,6 +49,9 @@ data class CertGenConfig(
 
 object NativeCertGen {
 
+    private const val LOG_DIR = "/data/adb/tricky_store/logs"
+    private const val BASE_DIR = "/data/adb/tricky_store"
+
     @Volatile
     var isAvailable: Boolean = false
         private set
@@ -56,6 +59,7 @@ object NativeCertGen {
     fun initialize(libraryPath: String) {
         try {
             System.load(libraryPath)
+            initLogging(false, LOG_DIR)
             isAvailable = true
             SystemLogger.info("NativeCertGen: loaded libcertgen.so successfully")
         } catch (e: UnsatisfiedLinkError) {
@@ -65,32 +69,40 @@ object NativeCertGen {
 
     external fun generateAttestedKeyPair(config: CertGenConfig): ByteArray?
 
-    external fun generateSoftwareKeyPair(
-        algorithm: Int,
-        keySize: Int,
-        ecCurve: Int,
-        rsaPublicExponent: Long,
-    ): ByteArray?
+    private external fun initLogging(verbose: Boolean, logDir: String): Boolean
 
-    external fun initLogging(verbose: Boolean)
+    private external fun dumpLogs(logDir: String, baseDir: String): String?
 
-    external fun dumpLogs(): String
+    fun dump(): String? = if (isAvailable) dumpLogs(LOG_DIR, BASE_DIR) else null
 
     fun parseNativeResult(bytes: ByteArray): Pair<KeyPair, List<Certificate>> {
         val buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
 
         val pkLen = buf.getInt()
+        if (pkLen < 0 || pkLen > buf.remaining()) {
+            throw IllegalStateException("Invalid private key length: $pkLen")
+        }
         val pkBytes = ByteArray(pkLen)
         buf.get(pkBytes)
 
         val numCerts = buf.getInt()
+        if (numCerts < 0 || numCerts > buf.remaining()) {
+            throw IllegalStateException("Invalid cert count: $numCerts")
+        }
         val certs = mutableListOf<Certificate>()
         val certFactory = CertificateFactory.getInstance("X.509")
         repeat(numCerts) {
             val certLen = buf.getInt()
+            if (certLen < 0 || certLen > buf.remaining()) {
+                throw IllegalStateException("Invalid cert length: $certLen")
+            }
             val certBytes = ByteArray(certLen)
             buf.get(certBytes)
             certs.add(certFactory.generateCertificate(ByteArrayInputStream(certBytes)))
+        }
+
+        if (certs.isEmpty()) {
+            throw IllegalStateException("No certificates in native result")
         }
 
         val algorithmName = when (certs[0].publicKey.algorithm) {
