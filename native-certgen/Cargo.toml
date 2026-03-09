@@ -13,7 +13,6 @@ ring = "0.17.14"
 rsa = { version = "0.9", features = ["sha2"] }
 pkcs8 = { version = "0.10", features = ["alloc"] }
 rand = "0.8"
-rcgen = { version = "0.13.2", default-features = false, features = ["ring"] }
 der = { version = "0.7.10", features = ["alloc", "oid"] }
 const-oid = "0.9.6"
 x509-cert = { version = "0.2.5", features = ["pem"] }

@@ -11,7 +11,6 @@ pub enum CertGenError {
     KeyboxParseFailed(String),
     AttestationBuildFailed(String),
     DerError(der::Error),
-    RcgenError(rcgen::Error),
     EmptyKeyboxChain,
     ChallengeTooLong(usize),
     InvalidParameter(String),
@@ -31,7 +30,6 @@ impl fmt::Display for CertGenError {
             Self::KeyboxParseFailed(msg) => write!(f, "keybox parse failed: {}", msg),
             Self::AttestationBuildFailed(msg) => write!(f, "attestation build failed: {}", msg),
             Self::DerError(e) => write!(f, "DER error: {}", e),
-            Self::RcgenError(e) => write!(f, "rcgen error: {}", e),
             Self::EmptyKeyboxChain => write!(f, "keybox certificate chain is empty"),
             Self::ChallengeTooLong(len) => write!(f, "attestation challenge too long: {} bytes (max 128)", len),
             Self::InvalidParameter(msg) => write!(f, "invalid parameter: {}", msg),
@@ -73,10 +71,5 @@ impl From<rsa::Error> for CertGenError {
     }
 }
 
-impl From<rcgen::Error> for CertGenError {
-    fn from(e: rcgen::Error) -> Self {
-        Self::RcgenError(e)
-    }
-}
 
 pub type Result<T> = std::result::Result<T, CertGenError>;

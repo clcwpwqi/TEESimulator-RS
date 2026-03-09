@@ -18,6 +18,7 @@ import java.security.spec.PKCS8EncodedKeySpec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import org.matrix.TEESimulator.attestation.AttestationBuilder
+import org.matrix.TEESimulator.attestation.AttestationConstants
 import org.matrix.TEESimulator.attestation.AttestationPatcher
 import org.matrix.TEESimulator.attestation.KeyMintAttestation
 import org.matrix.TEESimulator.config.ConfigurationManager
@@ -246,6 +247,13 @@ class KeyMintSecurityLevelInterceptor(
                 )
                 val params = data.createTypedArray(KeyParameter.CREATOR)!!
                 val parsedParams = KeyMintAttestation(params)
+
+                val challenge = parsedParams.attestationChallenge
+                if (challenge != null && challenge.size > AttestationConstants.CHALLENGE_LENGTH_LIMIT) {
+                    SystemLogger.warning("[TX_ID: $txId] Rejecting oversized attestation challenge: ${challenge.size} bytes (max ${AttestationConstants.CHALLENGE_LENGTH_LIMIT})")
+                    return InterceptorUtils.createErrorReply(KEYMINT_INVALID_INPUT_LENGTH)
+                }
+
                 val keyId = KeyIdentifier(callingUid, keyDescriptor.alias)
                 val isAttestKeyRequest = parsedParams.isAttestKey()
 
@@ -506,6 +514,7 @@ class KeyMintSecurityLevelInterceptor(
         // Maximum alias length to prevent binder buffer exhaustion (Issue #109)
         // Binder buffer is ~1MB; 256KB provides 4x safety margin for transaction overhead
         private const val MAX_ALIAS_LENGTH = 256 * 1024
+        private const val KEYMINT_INVALID_INPUT_LENGTH = -21
         private const val MAX_CONCURRENT_HW_KEYGEN_PER_UID = 2
         // Sliding window: max hardware keygen permits per UID within the burst window
         private const val MAX_HW_KEYGEN_PER_WINDOW = 2
