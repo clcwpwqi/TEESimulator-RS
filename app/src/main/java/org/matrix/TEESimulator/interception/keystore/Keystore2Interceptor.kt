@@ -172,14 +172,14 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                 return TransactionResult.ContinueAndSkipPost
             }
 
-            if (keyId in deletedSoftwareKeys) {
-                SystemLogger.info("[TX_ID: $txId] Returning KEY_NOT_FOUND for deleted key ${descriptor.alias}")
-                return InterceptorUtils.createErrorReply(RESPONSE_KEY_NOT_FOUND)
+            val response = KeyMintSecurityLevelInterceptor.getGeneratedKeyResponse(keyId)
+            if (response == null) {
+                if (deletedSoftwareKeys.remove(keyId)) {
+                    SystemLogger.info("[TX_ID: $txId] Returning KEY_NOT_FOUND for deleted key ${descriptor.alias}")
+                    return InterceptorUtils.createErrorReply(RESPONSE_KEY_NOT_FOUND)
+                }
+                return TransactionResult.Continue
             }
-
-            val response =
-                KeyMintSecurityLevelInterceptor.getGeneratedKeyResponse(keyId)
-                    ?: return TransactionResult.Continue
 
             if (KeyMintSecurityLevelInterceptor.isAttestationKey(keyId))
                 SystemLogger.info("${descriptor.alias} was an attestation key")
