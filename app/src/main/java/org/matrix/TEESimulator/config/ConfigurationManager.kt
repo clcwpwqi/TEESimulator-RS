@@ -360,7 +360,29 @@ object ConfigurationManager {
         return iPackageManager
     }
 
-    /** Retrieves the package names associated with a UID. */
+    fun checkSELinuxPermission(callingPid: Int, tclass: String, perm: String): Boolean {
+        return try {
+            val callerCtx =
+                java.io.File("/proc/$callingPid/attr/current").readText().trim('\u0000', ' ', '\n')
+            val selfCtx =
+                java.io.File("/proc/self/attr/current").readText().trim('\u0000', ' ', '\n')
+            android.os.SELinux.checkSELinuxAccess(callerCtx, selfCtx, tclass, perm)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun hasPermissionForUid(uid: Int, permission: String): Boolean {
+        val userId = uid / 100000
+        return getPackagesForUid(uid).any { pkg ->
+            try {
+                getPackageManager()?.checkPermission(permission, pkg, userId) == 0
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
     fun getPackagesForUid(uid: Int): Array<String> {
         return uidToPackagesCache.getOrPut(uid) {
             try {
