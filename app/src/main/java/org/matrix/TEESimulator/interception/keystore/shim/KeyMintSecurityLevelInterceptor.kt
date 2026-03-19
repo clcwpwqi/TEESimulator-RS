@@ -1,8 +1,10 @@
 package org.matrix.TEESimulator.interception.keystore.shim
 
 import android.hardware.security.keymint.Algorithm
+import android.hardware.security.keymint.BlockMode
 import android.hardware.security.keymint.EcCurve
 import android.hardware.security.keymint.KeyParameter
+import android.hardware.security.keymint.KeyPurpose
 import android.hardware.security.keymint.KeyParameterValue
 import android.hardware.security.keymint.KeyOrigin
 import android.hardware.security.keymint.SecurityLevel
@@ -47,6 +49,7 @@ class KeyMintSecurityLevelInterceptor(
         val keyPair: KeyPair,
         val nspace: Long,
         val response: KeyEntryResponse,
+        val keyParams: KeyMintAttestation? = null,
     )
 
     private val activeOps = ConcurrentHashMap<Int, ConcurrentLinkedDeque<SoftwareOperation>>()
@@ -132,6 +135,7 @@ class KeyMintSecurityLevelInterceptor(
                 GeneratedKeyPersistence.delete(keyId)
             }
             attestationKeys.remove(keyId)
+            importedKeys.add(keyId)
         } else if (code == CREATE_OPERATION_TRANSACTION) {
             logTransaction(txId, "post-${transactionNames[code]!!}", callingUid, callingPid)
 
@@ -158,7 +162,7 @@ class KeyMintSecurityLevelInterceptor(
                     val backdoor = getBackdoor(target)
                     if (backdoor != null) {
                         val interceptor = OperationInterceptor(operation, backdoor)
-                        register(backdoor, operationBinder, interceptor)
+                        register(backdoor, operationBinder, interceptor, OperationInterceptor.INTERCEPTED_CODES)
                         interceptedOperations[operationBinder] = interceptor
                     } else {
                         SystemLogger.error(
@@ -281,6 +285,11 @@ class KeyMintSecurityLevelInterceptor(
             })
         }
 
+        AuthorizeCreate.check(generatedKeyInfo.keyParams, parsedParams, params)?.let { errorCode ->
+            SystemLogger.info("[TX_ID: $txId] authorize_create rejected: errorCode=$errorCode")
+            return InterceptorUtils.createErrorReply(errorCode)
+        }
+
         val opLatency = if (securityLevel == SecurityLevel.STRONGBOX) STRONGBOX_OP_LATENCY_FLOOR_MS else 0L
         val softwareOperation = SoftwareOperation(txId, generatedKeyInfo.keyPair, parsedParams, opLatency)
         val maxOps = if (securityLevel == SecurityLevel.STRONGBOX) STRONGBOX_MAX_CONCURRENT_OPS else MAX_CONCURRENT_OPS_PER_UID
@@ -291,6 +300,16 @@ class KeyMintSecurityLevelInterceptor(
             CreateOperationResponse().apply {
                 iOperation = operationBinder
                 operationChallenge = null
+                softwareOperation.iv?.let { iv ->
+                    parameters = KeyParameters().apply {
+                        keyParameter = arrayOf(
+                            KeyParameter().apply {
+                                tag = Tag.NONCE
+                                value = KeyParameterValue.blob(iv)
+                            }
+                        )
+                    }
+                }
             }
 
         return InterceptorUtils.createTypedObjectReply(response)
@@ -423,7 +442,7 @@ class KeyMintSecurityLevelInterceptor(
 
         cleanupKeyData(keyId)
         val response = buildKeyEntryResponse(callingUid, keyData.second, parsedParams, keyDescriptor)
-        generatedKeys[keyId] = GeneratedKeyInfo(keyData.first, keyDescriptor.nspace, response)
+        generatedKeys[keyId] = GeneratedKeyInfo(keyData.first, keyDescriptor.nspace, response, parsedParams)
         if (isAttestKeyRequest) attestationKeys.add(keyId)
 
         GeneratedKeyPersistence.save(
@@ -610,10 +629,27 @@ class KeyMintSecurityLevelInterceptor(
                     manufacturer = null,
                     model = null,
                     secondImei = null,
+                    activeDateTime = null,
+                    originationExpireDateTime = null,
+                    usageExpireDateTime = null,
+                    usageCountLimit = null,
+                    callerNonce = null,
+                    unlockedDeviceRequired = null,
+                    includeUniqueId = null,
+                    rollbackResistance = null,
+                    earlyBootOnly = null,
+                    allowWhileOnBody = null,
+                    trustedUserPresenceRequired = null,
+                    trustedConfirmationRequired = null,
+                    noAuthRequired = null,
+                    maxUsesPerBoot = null,
+                    maxBootLevel = null,
+                    minMacLength = null,
+                    rsaOaepMgfDigest = emptyList(),
                 )
 
                 val response = buildKeyEntryResponse(record.uid, certChain, attestation, descriptor)
-                generatedKeys[keyId] = GeneratedKeyInfo(keyPair, record.nspace, response)
+                generatedKeys[keyId] = GeneratedKeyInfo(keyPair, record.nspace, response, attestation)
                 if (record.isAttestationKey) attestationKeys.add(keyId)
 
                 SystemLogger.debug("Restored persisted key: $keyId")
@@ -688,6 +724,9 @@ class KeyMintSecurityLevelInterceptor(
                 "createOperation",
             )
 
+        val INTERCEPTED_CODES =
+            intArrayOf(GENERATE_KEY_TRANSACTION, IMPORT_KEY_TRANSACTION, CREATE_OPERATION_TRANSACTION)
+
         private val transactionNames: Map<Int, String> by lazy {
             IKeystoreSecurityLevel.Stub::class
                 .java
@@ -702,6 +741,7 @@ class KeyMintSecurityLevelInterceptor(
         val generatedKeys = ConcurrentHashMap<KeyIdentifier, GeneratedKeyInfo>()
         val patchedChains = ConcurrentHashMap<KeyIdentifier, Array<Certificate>>()
         val attestationKeys: MutableSet<KeyIdentifier> = ConcurrentHashMap.newKeySet()
+        val importedKeys: MutableSet<KeyIdentifier> = ConcurrentHashMap.newKeySet()
         private val interceptedOperations = ConcurrentHashMap<IBinder, OperationInterceptor>()
 
         fun getGeneratedKeyResponse(keyId: KeyIdentifier): KeyEntryResponse? =
@@ -730,6 +770,7 @@ class KeyMintSecurityLevelInterceptor(
             if (attestationKeys.remove(keyId)) {
                 SystemLogger.debug("Remove cached attestaion key ${keyId}")
             }
+            importedKeys.remove(keyId)
         }
 
         fun removeOperationInterceptor(operationBinder: IBinder, backdoor: IBinder) {
@@ -754,6 +795,7 @@ class KeyMintSecurityLevelInterceptor(
             generatedKeys.clear()
             patchedChains.clear()
             attestationKeys.clear()
+            importedKeys.clear()
             GeneratedKeyPersistence.deleteAll()
             SystemLogger.info("Cleared all cached keys ($count entries)$reasonMessage.")
         }
@@ -783,6 +825,7 @@ private fun KeyMintAttestation.toAuthorizations(
         authList.add(createAuth(Tag.EC_CURVE, KeyParameterValue.ecCurve(this.ecCurve)))
     }
     this.purpose.forEach { authList.add(createAuth(Tag.PURPOSE, KeyParameterValue.keyPurpose(it))) }
+    this.blockMode.forEach { authList.add(createAuth(Tag.BLOCK_MODE, KeyParameterValue.blockMode(it))) }
     this.digest.forEach { authList.add(createAuth(Tag.DIGEST, KeyParameterValue.digest(it))) }
     this.padding.forEach { authList.add(createAuth(Tag.PADDING, KeyParameterValue.paddingMode(it))) }
     authList.add(createAuth(Tag.KEY_SIZE, KeyParameterValue.integer(this.keySize)))
@@ -806,7 +849,16 @@ private fun KeyMintAttestation.toAuthorizations(
         authList.add(createAuth(Tag.BOOT_PATCHLEVEL, KeyParameterValue.integer(bootPatch)))
     }
     authList.add(createAuth(Tag.CREATION_DATETIME, KeyParameterValue.dateTime(System.currentTimeMillis())))
-    authList.add(createAuth(Tag.USER_ID, KeyParameterValue.integer(callingUid / 100000)))
+    authList.add(
+        Authorization().apply {
+            this.keyParameter =
+                KeyParameter().apply {
+                    this.tag = Tag.USER_ID
+                    this.value = KeyParameterValue.integer(callingUid / 100000)
+                }
+            this.securityLevel = SecurityLevel.SOFTWARE
+        }
+    )
 
     return authList.toTypedArray()
 }
