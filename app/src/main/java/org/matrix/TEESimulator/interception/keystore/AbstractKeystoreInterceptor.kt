@@ -68,11 +68,12 @@ abstract class AbstractKeystoreInterceptor : BinderInterceptor() {
         }
     }
 
-    /** Registers this interceptor with the native hook layer and sets up a death recipient. */
+    protected open val interceptedCodes: IntArray = intArrayOf()
+
     private fun setupInterceptor(service: IBinder, backdoor: IBinder) {
         keystoreService = service
         SystemLogger.info("Registering interceptor for service: $serviceName")
-        register(backdoor, service, this)
+        register(backdoor, service, this, interceptedCodes)
         service.linkToDeath(createDeathRecipient(), 0)
         onInterceptorReady(service, backdoor)
     }

@@ -44,6 +44,8 @@ class OperationInterceptor(
         private val ABORT_TRANSACTION =
             InterceptorUtils.getTransactCode(IKeystoreOperation.Stub::class.java, "abort")
 
+        val INTERCEPTED_CODES = intArrayOf(FINISH_TRANSACTION, ABORT_TRANSACTION)
+
         private val transactionNames: Map<Int, String> by lazy {
             IKeystoreOperation.Stub::class
                 .java

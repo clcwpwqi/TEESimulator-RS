@@ -293,15 +293,21 @@ abstract class BinderInterceptor : Binder() {
             }
         }
 
-        /** Uses the backdoor binder to register an interceptor for a specific target service. */
-        fun register(backdoor: IBinder, target: IBinder, interceptor: BinderInterceptor) {
+        fun register(
+            backdoor: IBinder,
+            target: IBinder,
+            interceptor: BinderInterceptor,
+            filteredCodes: IntArray = intArrayOf(),
+        ) {
             val data = Parcel.obtain()
             val reply = Parcel.obtain()
             try {
                 data.writeStrongBinder(target)
                 data.writeStrongBinder(interceptor)
+                data.writeInt(filteredCodes.size)
+                for (code in filteredCodes) data.writeInt(code)
                 backdoor.transact(REGISTER_INTERCEPTOR_CODE, data, reply, 0)
-                SystemLogger.info("Registered interceptor for target: $target")
+                SystemLogger.info("Registered interceptor for target: $target (${filteredCodes.size} filtered codes)")
             } catch (e: Exception) {
                 SystemLogger.error("Failed to register binder interceptor.", e)
             } finally {
