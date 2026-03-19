@@ -242,6 +242,8 @@ boot=device_default
 - **[5ec1cff](https://github.com/5ec1cff/TrickyStore)** — TrickyStore, the project that pioneered keystore interception on Android
 - **[LSPlt](https://github.com/LSPosed/LSPlt)** — PLT hook library used for binder interception
 - **[ring](https://github.com/briansmith/ring)** — Rust cryptography library powering native cert generation
+- **[fatalcoder524](https://github.com/fatalcoder524)** — a real contributor and collaborator on this project
+- **[huguangares](https://github.com/huguangares)** — collaborator and tester
 
 ---
 
