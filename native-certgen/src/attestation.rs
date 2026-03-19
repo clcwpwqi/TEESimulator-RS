@@ -33,6 +33,36 @@ pub fn build_attestation_extension(params: &CertGenParams) -> Result<Vec<u8>> {
 fn build_software_enforced(params: &CertGenParams) -> Result<Vec<u8>> {
     let mut fields: Vec<(u32, Vec<u8>)> = Vec::new();
 
+    // Tag 303: CALLER_NONCE — NULL (presence = true)
+    if params.caller_nonce {
+        fields.push((303, enc_null()));
+    }
+
+    // Tag 400: ACTIVE_DATETIME — INTEGER (milliseconds)
+    if params.active_datetime >= 0 {
+        fields.push((400, enc_integer(params.active_datetime)));
+    }
+
+    // Tag 401: ORIGINATION_EXPIRE_DATETIME — INTEGER (milliseconds)
+    if params.origination_expire_datetime >= 0 {
+        fields.push((401, enc_integer(params.origination_expire_datetime)));
+    }
+
+    // Tag 402: USAGE_EXPIRE_DATETIME — INTEGER (milliseconds)
+    if params.usage_expire_datetime >= 0 {
+        fields.push((402, enc_integer(params.usage_expire_datetime)));
+    }
+
+    // Tag 405: USAGE_COUNT_LIMIT — INTEGER
+    if params.usage_count_limit >= 0 {
+        fields.push((405, enc_integer(params.usage_count_limit as i64)));
+    }
+
+    // Tag 509: UNLOCKED_DEVICE_REQUIRED — NULL
+    if params.unlocked_device_required {
+        fields.push((509, enc_null()));
+    }
+
     // Tag 701: CREATION_DATETIME — INTEGER (milliseconds)
     fields.push((701, enc_integer(params.creation_datetime)));
 
@@ -77,8 +107,10 @@ fn build_tee_enforced(params: &CertGenParams) -> Result<Vec<u8>> {
         fields.push((10, enc_integer(curve as i32 as i64)));
     }
 
-    // Tag 503: NO_AUTH_REQUIRED — NULL (presence = true)
-    fields.push((503, enc_null()));
+    // Tag 503: NO_AUTH_REQUIRED — NULL (conditional)
+    if params.no_auth_required {
+        fields.push((503, enc_null()));
+    }
 
     // Tag 702: ORIGIN — INTEGER 0 (GENERATED)
     fields.push((702, enc_integer(0)));
@@ -520,6 +552,44 @@ mod tests {
     }
 
     #[test]
+    fn test_enforcement_tags_in_software_enforced() {
+        let mut params = make_test_params();
+        params.usage_count_limit = 3;
+        params.unlocked_device_required = true;
+        params.caller_nonce = true;
+        params.active_datetime = 1709913600000;
+        let sw = build_software_enforced(&params).unwrap();
+        let inner = skip_tlv_header(&sw);
+        let tags = extract_tag_numbers(inner);
+        assert!(tags.contains(&303), "CALLER_NONCE (303) must be in softwareEnforced");
+        assert!(tags.contains(&400), "ACTIVE_DATETIME (400) must be in softwareEnforced");
+        assert!(tags.contains(&405), "USAGE_COUNT_LIMIT (405) must be in softwareEnforced");
+        assert!(tags.contains(&509), "UNLOCKED_DEVICE_REQUIRED (509) must be in softwareEnforced");
+    }
+
+    #[test]
+    fn test_no_auth_required_conditional() {
+        let mut params = make_test_params();
+        params.no_auth_required = false;
+        let tee = build_tee_enforced(&params).unwrap();
+        let inner = skip_tlv_header(&tee);
+        let tags = extract_tag_numbers(inner);
+        assert!(!tags.contains(&503), "NO_AUTH_REQUIRED (503) must be absent when false");
+    }
+
+    #[test]
+    fn test_enforcement_tags_omitted_when_unset() {
+        let params = make_test_params();
+        let sw = build_software_enforced(&params).unwrap();
+        let inner = skip_tlv_header(&sw);
+        let tags = extract_tag_numbers(inner);
+        assert!(!tags.contains(&303), "CALLER_NONCE should be absent when false");
+        assert!(!tags.contains(&400), "ACTIVE_DATETIME should be absent when -1");
+        assert!(!tags.contains(&405), "USAGE_COUNT_LIMIT should be absent when -1");
+        assert!(!tags.contains(&509), "UNLOCKED_DEVICE_REQUIRED should be absent when false");
+    }
+
+    #[test]
     fn test_full_extension_roundtrip() {
         let params = make_test_params();
         let ext = build_attestation_extension(&params).unwrap();
@@ -568,6 +638,13 @@ mod tests {
             id_manufacturer: None,
             id_model: None,
             id_second_imei: None,
+            active_datetime: -1,
+            origination_expire_datetime: -1,
+            usage_expire_datetime: -1,
+            usage_count_limit: -1,
+            caller_nonce: false,
+            unlocked_device_required: false,
+            no_auth_required: true,
         }
     }
 

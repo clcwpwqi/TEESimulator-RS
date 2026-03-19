@@ -199,6 +199,14 @@ fn extract_config(env: &mut JNIEnv, config: &JObject) -> Result<CertGenParams> {
     let id_model = get_nullable_byte_array(env, config, "idModel")?;
     let id_second_imei = get_nullable_byte_array(env, config, "idSecondImei")?;
 
+    let active_datetime = get_long(env, config, "activeDatetime")?;
+    let origination_expire_datetime = get_long(env, config, "originationExpireDatetime")?;
+    let usage_expire_datetime = get_long(env, config, "usageExpireDatetime")?;
+    let usage_count_limit = get_int(env, config, "usageCountLimit")?;
+    let caller_nonce = get_boolean(env, config, "callerNonce")?;
+    let unlocked_device_required = get_boolean(env, config, "unlockedDeviceRequired")?;
+    let no_auth_required = get_boolean(env, config, "noAuthRequired")?;
+
     Ok(CertGenParams {
         algorithm: Algorithm::try_from(algorithm)?,
         key_size: key_size as u32,
@@ -238,6 +246,13 @@ fn extract_config(env: &mut JNIEnv, config: &JObject) -> Result<CertGenParams> {
         id_manufacturer,
         id_model,
         id_second_imei,
+        active_datetime,
+        origination_expire_datetime,
+        usage_expire_datetime,
+        usage_count_limit,
+        caller_nonce,
+        unlocked_device_required,
+        no_auth_required,
     })
 }
 
@@ -251,6 +266,10 @@ fn get_int(env: &mut JNIEnv, obj: &JObject, name: &str) -> Result<i32> {
 
 fn get_long(env: &mut JNIEnv, obj: &JObject, name: &str) -> Result<i64> {
     Ok(env.get_field(obj, name, "J")?.j()?)
+}
+
+fn get_boolean(env: &mut JNIEnv, obj: &JObject, name: &str) -> Result<bool> {
+    Ok(env.get_field(obj, name, "Z")?.z()?)
 }
 
 fn get_byte_array(env: &mut JNIEnv, obj: &JObject, name: &'static str) -> Result<Vec<u8>> {

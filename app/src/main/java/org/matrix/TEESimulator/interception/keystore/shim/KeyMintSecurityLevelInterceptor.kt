@@ -149,6 +149,10 @@ class KeyMintSecurityLevelInterceptor(
                     metadata.authorizations =
                         InterceptorUtils.patchAuthorizations(metadata.authorizations, callingUid)
                     patchedChains[keyId] = newChain
+                    teeResponses[keyId] = KeyEntryResponse().apply {
+                        this.metadata = metadata
+                        iSecurityLevel = original
+                    }
                     SystemLogger.debug("Cached patched certificate chain for imported key $keyId.")
                     return InterceptorUtils.createTypedObjectReply(metadata)
                 }
@@ -212,6 +216,10 @@ class KeyMintSecurityLevelInterceptor(
                 // We must clean up cached generated keys before storing the patched chain
                 cleanupKeyData(keyId)
                 patchedChains[keyId] = newChain
+                teeResponses[keyId] = KeyEntryResponse().apply {
+                    this.metadata = metadata
+                    iSecurityLevel = original
+                }
                 SystemLogger.debug(
                     "Cached patched certificate chain for $keyId. (${key.alias} [${key.domain}, ${key.nspace}])"
                 )
@@ -641,6 +649,13 @@ class KeyMintSecurityLevelInterceptor(
                 idManufacturer = params.manufacturer,
                 idModel = params.model,
                 idSecondImei = if (attestVersion >= 300) params.secondImei else null,
+                activeDatetime = params.activeDateTime?.time ?: -1L,
+                originationExpireDatetime = params.originationExpireDateTime?.time ?: -1L,
+                usageExpireDatetime = params.usageExpireDateTime?.time ?: -1L,
+                usageCountLimit = params.usageCountLimit ?: -1,
+                callerNonce = params.callerNonce == true,
+                unlockedDeviceRequired = params.unlockedDeviceRequired == true,
+                noAuthRequired = params.noAuthRequired != false,
             )
 
             val resultBytes = NativeCertGen.generateAttestedKeyPair(config) ?: return null
@@ -861,6 +876,7 @@ class KeyMintSecurityLevelInterceptor(
         }
 
         val generatedKeys = ConcurrentHashMap<KeyIdentifier, GeneratedKeyInfo>()
+        val teeResponses = ConcurrentHashMap<KeyIdentifier, KeyEntryResponse>()
         val patchedChains = ConcurrentHashMap<KeyIdentifier, Array<Certificate>>()
         val attestationKeys: MutableSet<KeyIdentifier> = ConcurrentHashMap.newKeySet()
         val importedKeys: MutableSet<KeyIdentifier> = ConcurrentHashMap.newKeySet()
@@ -868,7 +884,7 @@ class KeyMintSecurityLevelInterceptor(
         private val interceptedOperations = ConcurrentHashMap<IBinder, OperationInterceptor>()
 
         fun getGeneratedKeyResponse(keyId: KeyIdentifier): KeyEntryResponse? =
-            generatedKeys[keyId]?.response
+            generatedKeys[keyId]?.response ?: teeResponses[keyId]
 
         fun findGeneratedKeyByKeyId(callingUid: Int, nspace: Long?): GeneratedKeyInfo? {
             if (nspace == null || nspace == 0L) return null
@@ -887,6 +903,7 @@ class KeyMintSecurityLevelInterceptor(
                 SystemLogger.debug("Remove generated key ${keyId}")
                 GeneratedKeyPersistence.delete(keyId)
             }
+            teeResponses.remove(keyId)
             if (patchedChains.remove(keyId) != null) {
                 SystemLogger.debug("Remove patched chain for ${keyId}")
             }
@@ -917,6 +934,7 @@ class KeyMintSecurityLevelInterceptor(
             val count = generatedKeys.size
             val reasonMessage = reason?.let { " due to $it" } ?: ""
             generatedKeys.clear()
+            teeResponses.clear()
             patchedChains.clear()
             attestationKeys.clear()
             importedKeys.clear()

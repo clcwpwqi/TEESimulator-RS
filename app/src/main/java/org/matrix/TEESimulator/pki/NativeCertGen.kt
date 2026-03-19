@@ -45,6 +45,13 @@ data class CertGenConfig(
     val idManufacturer: ByteArray?,
     val idModel: ByteArray?,
     val idSecondImei: ByteArray?,
+    val activeDatetime: Long = -1L,
+    val originationExpireDatetime: Long = -1L,
+    val usageExpireDatetime: Long = -1L,
+    val usageCountLimit: Int = -1,
+    val callerNonce: Boolean = false,
+    val unlockedDeviceRequired: Boolean = false,
+    val noAuthRequired: Boolean = true,
 )
 
 object NativeCertGen {

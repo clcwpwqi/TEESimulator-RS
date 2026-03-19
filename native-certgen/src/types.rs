@@ -42,35 +42,6 @@ impl TryFrom<i32> for EcCurve {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
-pub enum KeyPurpose {
-    Encrypt = 0,
-    Decrypt = 1,
-    Sign = 2,
-    Verify = 3,
-    WrapKey = 5,
-    AgreeKey = 6,
-    AttestKey = 7,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
-pub enum SecurityLevel {
-    Software = 0,
-    TrustedEnvironment = 1,
-    StrongBox = 2,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
-pub enum VerifiedBootState {
-    Verified = 0,
-    SelfSigned = 1,
-    Unverified = 2,
-    Failed = 3,
-}
-
 pub struct CertGenParams {
     pub algorithm: Algorithm,
     pub key_size: u32,
@@ -114,6 +85,14 @@ pub struct CertGenParams {
     pub id_manufacturer: Option<Vec<u8>>,
     pub id_model: Option<Vec<u8>>,
     pub id_second_imei: Option<Vec<u8>>,
+
+    pub active_datetime: i64,
+    pub origination_expire_datetime: i64,
+    pub usage_expire_datetime: i64,
+    pub usage_count_limit: i32,
+    pub caller_nonce: bool,
+    pub unlocked_device_required: bool,
+    pub no_auth_required: bool,
 }
 
 pub struct GeneratedKeyPair {
