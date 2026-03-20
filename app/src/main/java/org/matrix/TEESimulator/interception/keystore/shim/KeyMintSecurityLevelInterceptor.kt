@@ -20,6 +20,7 @@ import java.security.SecureRandom
 import java.security.cert.Certificate
 import java.security.cert.CertificateFactory
 import java.security.spec.PKCS8EncodedKeySpec
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.Executors
@@ -116,12 +117,6 @@ class KeyMintSecurityLevelInterceptor(
         reply: Parcel?,
         resultCode: Int,
     ): TransactionResult {
-        if (code == GENERATE_KEY_TRANSACTION && hardwareKeygenTxIds.remove(txId)) {
-            val remaining = hardwareKeygenCount(callingUid).decrementAndGet()
-            SystemLogger.info("[TX_ID: $txId] PERMIT_RELEASED uid=$callingUid concurrent_remaining=$remaining result=${if (resultCode == 0) "OK" else "ERROR($resultCode)"}")
-        }
-
-        // We only care about successful transactions.
         if (resultCode != 0 || reply == null || InterceptorUtils.hasException(reply))
             return TransactionResult.SkipTransaction
 
@@ -468,38 +463,23 @@ class KeyMintSecurityLevelInterceptor(
                 val keyId = KeyIdentifier(callingUid, keyDescriptor.alias)
                 val isAttestKeyRequest = parsedParams.isAttestKey()
 
-                val needsSoftwareGeneration =
+                val forceGenerate =
                     ConfigurationManager.shouldGenerate(callingUid) ||
                         (ConfigurationManager.shouldPatch(callingUid) && isAttestKeyRequest) ||
                         (attestationKey != null &&
                             isAttestationKey(KeyIdentifier(callingUid, attestationKey.alias)))
 
-                if (needsSoftwareGeneration) {
-                    return doSoftwareKeyGen(callingUid, keyDescriptor, attestationKey, parsedParams, keyId, isAttestKeyRequest)
-                } else if (parsedParams.attestationChallenge != null) {
-                    val windowUsed = hardwareKeygenWindowCount(callingUid)
-                    val concurrentUsed = hardwareKeygenCount(callingUid).get()
+                val isAuto = ConfigurationManager.isAutoMode(callingUid)
 
-                    // Sliding window rate limit
-                    if (windowUsed >= MAX_HW_KEYGEN_PER_WINDOW) {
-                        SystemLogger.info("[TX_ID: $txId] RATE_LIMITED uid=$callingUid window=$windowUsed/$MAX_HW_KEYGEN_PER_WINDOW concurrent=$concurrentUsed → software fallback")
-                        return doSoftwareKeyGen(callingUid, keyDescriptor, attestationKey, parsedParams, keyId, isAttestKeyRequest)
+                when {
+                    forceGenerate -> doSoftwareKeyGen(callingUid, keyDescriptor, attestationKey, parsedParams, keyId, isAttestKeyRequest)
+                    isAuto && !teeFunctional -> raceTeePatch(callingUid, keyDescriptor, attestationKey, params, parsedParams, keyId, isAttestKeyRequest)
+                    parsedParams.attestationChallenge != null -> TransactionResult.Continue
+                    else -> {
+                        cleanupKeyData(keyId)
+                        TransactionResult.ContinueAndSkipPost
                     }
-                    // Concurrent cap
-                    if (hardwareKeygenCount(callingUid).incrementAndGet() > MAX_CONCURRENT_HW_KEYGEN_PER_UID) {
-                        hardwareKeygenCount(callingUid).decrementAndGet()
-                        SystemLogger.info("[TX_ID: $txId] CONCURRENT_LIMITED uid=$callingUid window=$windowUsed/$MAX_HW_KEYGEN_PER_WINDOW concurrent=${concurrentUsed + 1}/$MAX_CONCURRENT_HW_KEYGEN_PER_UID → software fallback")
-                        return doSoftwareKeyGen(callingUid, keyDescriptor, attestationKey, parsedParams, keyId, isAttestKeyRequest)
-                    }
-                    // Both checks passed — commit the window permit and forward to hardware TEE
-                    recordHardwareKeygen(callingUid)
-                    hardwareKeygenTxIds.add(txId)
-                    SystemLogger.info("[TX_ID: $txId] HARDWARE_KEYGEN uid=$callingUid window=${windowUsed + 1}/$MAX_HW_KEYGEN_PER_WINDOW concurrent=${concurrentUsed + 1}/$MAX_CONCURRENT_HW_KEYGEN_PER_UID → forwarding to TEE")
-                    return TransactionResult.Continue
                 }
-
-                cleanupKeyData(keyId)
-                TransactionResult.ContinueAndSkipPost
             }
             .getOrElse {
                 SystemLogger.error("Error during generateKey handling for UID $callingUid.", it)
@@ -606,6 +586,85 @@ class KeyMintSecurityLevelInterceptor(
         }
 
         return InterceptorUtils.createTypedObjectReply(response.metadata)
+    }
+
+    private fun raceTeePatch(
+        callingUid: Int,
+        keyDescriptor: KeyDescriptor,
+        attestationKey: KeyDescriptor?,
+        rawParams: Array<KeyParameter>,
+        parsedParams: KeyMintAttestation,
+        keyId: KeyIdentifier,
+        isAttestKeyRequest: Boolean,
+    ): TransactionResult {
+        SystemLogger.info("AUTO: racing TEE vs software for ${keyDescriptor.alias}")
+
+        val teeDescriptor = KeyDescriptor().apply {
+            domain = keyDescriptor.domain
+            nspace = keyDescriptor.nspace
+            alias = keyDescriptor.alias
+            blob = keyDescriptor.blob
+        }
+        val teeAttestKey = attestationKey?.let {
+            KeyDescriptor().apply {
+                domain = it.domain
+                nspace = it.nspace
+                alias = it.alias
+                blob = it.blob
+            }
+        }
+
+        val threadA = CompletableFuture.supplyAsync {
+            original.generateKey(teeDescriptor, teeAttestKey, rawParams, 0, byteArrayOf())
+        }
+
+        val swDescriptor = KeyDescriptor().apply {
+            domain = keyDescriptor.domain
+            nspace = secureRandom.nextLong()
+            alias = keyDescriptor.alias
+            blob = keyDescriptor.blob
+        }
+        val swKeyId = KeyIdentifier(callingUid, keyDescriptor.alias)
+
+        val threadB = CompletableFuture.supplyAsync {
+            doSoftwareKeyGen(callingUid, swDescriptor, attestationKey, parsedParams, swKeyId, isAttestKeyRequest)
+        }
+
+        return try {
+            val teeMetadata = threadA.join()
+            threadB.cancel(true)
+            teeFunctional = true
+            SystemLogger.info("AUTO: TEE succeeded for ${keyDescriptor.alias}, marked functional.")
+
+            val originalChain = CertificateHelper.getCertificateChain(teeMetadata)
+            if (originalChain != null && originalChain.size > 1) {
+                val newChain = AttestationPatcher.patchCertificateChain(originalChain, callingUid)
+                CertificateHelper.updateCertificateChain(teeMetadata, newChain).getOrThrow()
+                teeMetadata.authorizations =
+                    InterceptorUtils.patchAuthorizations(teeMetadata.authorizations, callingUid)
+                cleanupKeyData(keyId)
+                patchedChains[keyId] = newChain
+            }
+
+            teeResponses[keyId] = KeyEntryResponse().apply {
+                this.metadata = teeMetadata
+                iSecurityLevel = original
+            }
+
+            InterceptorUtils.createTypedObjectReply(teeMetadata)
+        } catch (_: Exception) {
+            SystemLogger.info("AUTO: TEE failed for ${keyDescriptor.alias}, using software result.")
+            try {
+                threadB.join()
+            } catch (e: Exception) {
+                SystemLogger.error("AUTO: both paths failed for ${keyDescriptor.alias}.", e)
+                val code =
+                    if (e.cause is android.os.ServiceSpecificException)
+                        (e.cause as android.os.ServiceSpecificException).errorCode
+                    else SECURE_HW_COMMUNICATION_FAILED
+                InterceptorUtils.createServiceSpecificErrorReply(code)
+            }
+        }
     }
 
     private fun generateAttestedKeyPairNative(
@@ -811,6 +870,7 @@ class KeyMintSecurityLevelInterceptor(
 
     companion object {
         private val secureRandom = SecureRandom()
+        @Volatile var teeFunctional = false
 
         // Maximum alias length to prevent binder buffer exhaustion (Issue #109)
         // Binder buffer is ~1MB; 256KB provides 4x safety margin for transaction overhead
@@ -830,41 +890,10 @@ class KeyMintSecurityLevelInterceptor(
         private const val MAX_CONCURRENT_OPS_PER_UID = 15
         private const val STRONGBOX_MAX_CONCURRENT_OPS = 4
         private const val STRONGBOX_OP_WINDOW_NS = 10_000_000_000L // 10s
-        private const val MAX_CONCURRENT_HW_KEYGEN_PER_UID = 2
-        // Sliding window: max hardware keygen permits per UID within the burst window
-        private const val MAX_HW_KEYGEN_PER_WINDOW = 2
-        private const val BURST_WINDOW_MS = 30_000L
-        private val uidHardwareKeygenCount = ConcurrentHashMap<Int, AtomicInteger>()
-        private val hardwareKeygenTxIds = ConcurrentHashMap.newKeySet<Long>()
-        private val uidKeygenTimestamps = ConcurrentHashMap<Int, MutableList<Long>>()
-
         private fun isStrongBoxCapable(params: KeyMintAttestation): Boolean = when (params.algorithm) {
             Algorithm.RSA -> params.keySize <= 2048
             Algorithm.EC -> params.ecCurve == null || params.ecCurve == EcCurve.P_256
             else -> true
-        }
-
-        private fun hardwareKeygenCount(uid: Int): AtomicInteger =
-            uidHardwareKeygenCount.computeIfAbsent(uid) { AtomicInteger(0) }
-
-        private fun hardwareKeygenWindowCount(uid: Int): Int {
-            val now = System.currentTimeMillis()
-            val timestamps = uidKeygenTimestamps.computeIfAbsent(uid) { mutableListOf() }
-            synchronized(timestamps) {
-                timestamps.removeAll { now - it > BURST_WINDOW_MS }
-                if (timestamps.isEmpty()) {
-                    uidKeygenTimestamps.remove(uid, timestamps)
-                    uidHardwareKeygenCount.remove(uid)
-                }
-                return timestamps.size
-            }
-        }
-
-        private fun recordHardwareKeygen(uid: Int) {
-            val timestamps = uidKeygenTimestamps.computeIfAbsent(uid) { mutableListOf() }
-            synchronized(timestamps) {
-                timestamps.add(System.currentTimeMillis())
-            }
         }
 
         private val GENERATE_KEY_TRANSACTION =

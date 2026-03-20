@@ -358,14 +358,19 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                                 keyData.second.toTypedArray(),
                             )
                             .getOrThrow()
+                        response.metadata.authorizations =
+                            InterceptorUtils.patchAuthorizations(
+                                response.metadata.authorizations,
+                                callingUid,
+                            )
 
-                        keyDescriptor.nspace = SecureRandom().nextLong()
-                        response.metadata.key.nspace = keyDescriptor.nspace
+                        val newNspace = SecureRandom().nextLong()
+                        response.metadata.key?.let { it.nspace = newNspace }
                         KeyMintSecurityLevelInterceptor.generatedKeys[keyId] =
                             KeyMintSecurityLevelInterceptor.GeneratedKeyInfo(
                                 keyData.first,
                                 null,
-                                keyDescriptor.nspace,
+                                newNspace,
                                 response,
                                 parsedParameters,
                             )
@@ -374,7 +379,7 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                         GeneratedKeyPersistence.save(
                             keyId = keyId,
                             keyPair = keyData.first,
-                            nspace = keyDescriptor.nspace,
+                            nspace = newNspace,
                             securityLevel = response.metadata.keySecurityLevel,
                             certChain = keyData.second,
                             algorithm = parsedParameters.algorithm,
