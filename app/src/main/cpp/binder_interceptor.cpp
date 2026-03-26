@@ -428,44 +428,29 @@ void processBinderReadBuffer(const binder_write_read &bwr) {
     uintptr_t ptr = bwr.read_buffer;
     uintptr_t end = ptr + bwr.read_consumed;
 
-    LOGV("[Hook] Processing Read Buffer: Size=%llu, Consumed=%llu", bwr.read_size, bwr.read_consumed);
-
     while (ptr < end) {
-        // Ensure we can read at least the command header
         if (end - ptr < sizeof(uint32_t))
             break;
 
         uint32_t cmd = *reinterpret_cast<const uint32_t *>(ptr);
         ptr += sizeof(uint32_t);
-
-        // Calculate payload size from the ioctl command code
         size_t cmd_size = _IOC_SIZE(cmd);
 
-        // Log the command using our generated to-string function
-        LOGV("[Driver -> User] Command: %s (0x%x), DataSize: %zu", getBinderReturnCommandName(cmd), cmd, cmd_size);
-
-        // Safety check: ensure the command's data does not exceed the buffer
         if (ptr + cmd_size > end) {
-            LOGE("[Hook] Buffer overflow detected while parsing command %s", getBinderReturnCommandName(cmd));
+            LOGE("[Hook] Buffer overrun parsing command 0x%x", cmd);
             break;
         }
 
-        // We are primarily interested in BR_TRANSACTION commands to intercept
-        if (cmd == BR_TRANSACTION || cmd == BR_TRANSACTION_SEC_CTX) {
-            binder_transaction_data *txn = nullptr;
-
+        if (__builtin_expect(cmd == BR_TRANSACTION || cmd == BR_TRANSACTION_SEC_CTX, 0)) {
+            binder_transaction_data *txn;
             if (cmd == BR_TRANSACTION_SEC_CTX) {
-                // The data is wrapped in a secctx struct
-                auto *wrapper = reinterpret_cast<binder_transaction_data_secctx *>(ptr);
-                txn = &wrapper->transaction_data;
+                txn = &reinterpret_cast<binder_transaction_data_secctx *>(ptr)->transaction_data;
             } else {
                 txn = reinterpret_cast<binder_transaction_data *>(ptr);
             }
-
             inspectAndRewriteTransaction(txn);
         }
 
-        // Advance pointer to the next command
         ptr += cmd_size;
     }
 }
@@ -485,13 +470,17 @@ int intercepted_ioctl(int fd, int request, ...) {
     // 1. Call original kernel ioctl to let the driver do its work
     int result = g_original_ioctl(fd, request, arg);
 
-    // 2. After the call returns, check if it was a BINDER_WRITE_READ and if it succeeded
     if (result >= 0 && request == BINDER_WRITE_READ && arg != nullptr) {
         const auto *bwr = static_cast<const binder_write_read *>(arg);
-
-        // We only care about data read FROM the driver (i.e., incoming commands)
-        if (bwr->read_consumed > 0) {
-            processBinderReadBuffer(*bwr);
+        // Fast reject: only enter the parser if the buffer could contain a BR_TRANSACTION.
+        // Pings, ref ops, and looper management never produce BR_TRANSACTION, so scanning
+        // their buffers is pure overhead (~2-5us per ioctl in debug builds).
+        if (bwr->read_consumed >= sizeof(uint32_t)) {
+            uint32_t first_cmd = *reinterpret_cast<const uint32_t *>(bwr->read_buffer);
+            if (first_cmd == BR_TRANSACTION || first_cmd == BR_TRANSACTION_SEC_CTX
+                || bwr->read_consumed > sizeof(uint32_t) + _IOC_SIZE(first_cmd)) {
+                processBinderReadBuffer(*bwr);
+            }
         }
     }
 
