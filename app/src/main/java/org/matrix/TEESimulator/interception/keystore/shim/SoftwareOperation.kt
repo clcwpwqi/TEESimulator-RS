@@ -218,19 +218,63 @@ class SoftwareOperation(
         val purposeName = KeyMintParameterLogger.purposeNames[purpose] ?: "UNKNOWN"
         SystemLogger.debug("[SoftwareOp TX_ID: $txId] Initializing for purpose: $purposeName.")
 
+        if (purpose == null) {
+            // Defensive: if params somehow restored without a PURPOSE tag
+            // (corrupt v2 metadata, mismatched authorizations array on load,
+            // or future format drift) the original code crashed with NPE
+            // because Signer/Verifier/Cipher all dereference keyPair!!
+            // before checking purpose. Surface a clean keystore error
+            // instead so callers see a normal-looking operation failure
+            // they can recover from rather than the process appearing to
+            // silently corrupt their session.
+            SystemLogger.warning(
+                "[SoftwareOp TX_ID: $txId] Purpose missing on restored key " +
+                "(authorizations=${params.purpose}, keyPair=${if (keyPair != null) "present" else "null"}, " +
+                "secretKey=${if (secretKey != null) "present" else "null"}). " +
+                "Returning unsupportedPurpose."
+            )
+            throw ServiceSpecificException(
+                KeystoreErrorCodes.unsupportedPurpose,
+                "Restored key has no PURPOSE authorization",
+            )
+        }
+
         primitive =
             when (purpose) {
-                KeyPurpose.SIGN -> Signer(keyPair!!, params)
-                KeyPurpose.VERIFY -> Verifier(keyPair!!, params)
+                KeyPurpose.SIGN -> {
+                    requireNotNull(keyPair) {
+                        "[SoftwareOp TX_ID: $txId] SIGN requested but keyPair is null"
+                    }
+                    Signer(keyPair, params)
+                }
+                KeyPurpose.VERIFY -> {
+                    requireNotNull(keyPair) {
+                        "[SoftwareOp TX_ID: $txId] VERIFY requested but keyPair is null"
+                    }
+                    Verifier(keyPair, params)
+                }
                 KeyPurpose.ENCRYPT -> {
-                    val key: java.security.Key = secretKey ?: keyPair!!.public
+                    val key: java.security.Key = secretKey ?: keyPair?.public
+                        ?: throw ServiceSpecificException(
+                            KeystoreErrorCodes.unsupportedPurpose,
+                            "[SoftwareOp TX_ID: $txId] ENCRYPT requires either secretKey or keyPair.public",
+                        )
                     CipherPrimitive(key, params, Cipher.ENCRYPT_MODE)
                 }
                 KeyPurpose.DECRYPT -> {
-                    val key: java.security.Key = secretKey ?: keyPair!!.private
+                    val key: java.security.Key = secretKey ?: keyPair?.private
+                        ?: throw ServiceSpecificException(
+                            KeystoreErrorCodes.unsupportedPurpose,
+                            "[SoftwareOp TX_ID: $txId] DECRYPT requires either secretKey or keyPair.private",
+                        )
                     CipherPrimitive(key, params, Cipher.DECRYPT_MODE)
                 }
-                KeyPurpose.AGREE_KEY -> KeyAgreementPrimitive(keyPair!!)
+                KeyPurpose.AGREE_KEY -> {
+                    requireNotNull(keyPair) {
+                        "[SoftwareOp TX_ID: $txId] AGREE_KEY requested but keyPair is null"
+                    }
+                    KeyAgreementPrimitive(keyPair)
+                }
                 else ->
                     throw ServiceSpecificException(
                         KeystoreErrorCodes.unsupportedPurpose,
