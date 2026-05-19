@@ -102,14 +102,21 @@ object BulletinPoller {
                 )
             }
             val current = currentPatch()
-            if (current == null) {
+            if (current == null || date <= current) {
                 return FetchResult(ts, "success", code, date, false, null)
             }
-            val isNewer = date > current
-            if (isNewer) {
-                PatchLevelManager.updateTo(date)
+            if (PatchLevelManager.updateTo(date)) {
+                FetchResult(ts, "success", code, date, true, null)
+            } else {
+                FetchResult(
+                    ts,
+                    "validation_rejected",
+                    code,
+                    date,
+                    false,
+                    "PatchLevelManager.updateTo rejected $date",
+                )
             }
-            FetchResult(ts, "success", code, date, isNewer, null)
         } catch (e: Exception) {
             FetchResult(ts, "network_error", null, null, false, e.toString())
         } finally {

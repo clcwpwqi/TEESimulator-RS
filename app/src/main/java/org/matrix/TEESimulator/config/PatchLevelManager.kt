@@ -79,15 +79,15 @@ object PatchLevelManager {
         AndroidDeviceUtils.setProperty("ro.vendor.build.security_patch", date)
     }
 
-    fun updateTo(date: String) {
+    fun updateTo(date: String): Boolean {
         if (!DATE_PATTERN.matches(date)) {
             SystemLogger.warning("PatchLevelManager: invalid date format: $date")
-            return
+            return false
         }
         val dateInt = date.replace("-", "").toInt()
         if (dateInt < FLOOR_YYYYMMDD) {
             SystemLogger.warning("PatchLevelManager: $date below floor $FLOOR_YYYYMMDD")
-            return
+            return false
         }
         val now = LocalDate.now()
         val today = now.year * 10000 + now.monthValue * 100 + now.dayOfMonth
@@ -95,7 +95,7 @@ object PatchLevelManager {
             SystemLogger.warning(
                 "PatchLevelManager: $date more than 1y older than today ($today)"
             )
-            return
+            return false
         }
         val maxFuture =
             now.plusDays(MAX_FUTURE_DAYS).let {
@@ -105,16 +105,17 @@ object PatchLevelManager {
             SystemLogger.warning(
                 "PatchLevelManager: $date more than $MAX_FUTURE_DAYS days in future ($maxFuture)"
             )
-            return
+            return false
         }
         try {
             atomicWrite(date)
         } catch (e: Exception) {
             SystemLogger.error("PatchLevelManager: atomicWrite failed for $date", e)
-            return
+            return false
         }
         applyToProps(date)
         SystemLogger.info("PatchLevelManager: applied patch date $date")
+        return true
     }
 
     private fun resolvePifPatch(): String? {
