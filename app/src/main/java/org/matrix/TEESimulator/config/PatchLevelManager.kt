@@ -61,6 +61,7 @@ object PatchLevelManager {
         PifObserver.startWatching()
     }
 
+    @Synchronized
     private fun applyToProps(date: String) {
         if (!DATE_PATTERN.matches(date)) {
             SystemLogger.warning(
