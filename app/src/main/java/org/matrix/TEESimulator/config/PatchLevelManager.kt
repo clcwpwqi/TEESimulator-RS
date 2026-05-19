@@ -170,8 +170,8 @@ object PatchLevelManager {
     }
 
     private fun isGlobalKeyAssignment(trimmed: String): Boolean {
-        if (trimmed.isEmpty() || trimmed.startsWith("#")) return false
-        val key = trimmed.substringBefore("=").trim().lowercase()
+        if (trimmed.isEmpty() || trimmed.startsWith("#") || '=' !in trimmed) return false
+        val key = trimmed.substringBefore('=').trim().lowercase()
         return key in GLOBAL_KEYS
     }
 
