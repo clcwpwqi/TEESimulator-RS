@@ -19,6 +19,8 @@ object PatchLevelManager {
 
     private val DATE_PATTERN = Regex("^\\d{4}-\\d{2}-\\d{2}$")
     private val PROP_PATTERN = Regex("^SECURITY_PATCH=(.+)$", RegexOption.MULTILINE)
+    private val SECTION_HEADER = Regex("^\\[[a-zA-Z0-9_.-]+]$")
+    private val GLOBAL_KEYS = setOf("system", "boot", "vendor", "all")
 
     private val PIF_SOURCES =
         listOf(
@@ -107,12 +109,44 @@ object PatchLevelManager {
     private fun atomicWrite(date: String) {
         val target = File(PATCH_FILE)
         val staging = File(STAGING_FILE)
-        staging.writeText("system=$date\nboot=$date\nvendor=$date\n")
+        staging.writeText(mergedContents(target, date))
         Files.move(
             staging.toPath(),
             target.toPath(),
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING,
         )
+    }
+
+    private fun mergedContents(target: File, date: String): String {
+        val globalBlock = "system=$date\nboot=$date\nvendor=$date\n"
+        if (!target.exists()) return globalBlock
+        val tail =
+            runCatching { stripGlobalAssignments(target.readLines()) }.getOrNull()
+                ?: return globalBlock
+        if (tail.isEmpty()) return globalBlock
+        return globalBlock + tail.joinToString("\n", prefix = "\n", postfix = "\n")
+    }
+
+    private fun stripGlobalAssignments(lines: List<String>): List<String> {
+        val kept = mutableListOf<String>()
+        var inGlobal = true
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (SECTION_HEADER.matches(trimmed)) {
+                inGlobal = false
+                kept += line
+                continue
+            }
+            if (inGlobal && isGlobalKeyAssignment(trimmed)) continue
+            kept += line
+        }
+        return kept
+    }
+
+    private fun isGlobalKeyAssignment(trimmed: String): Boolean {
+        if (trimmed.isEmpty() || trimmed.startsWith("#")) return false
+        val key = trimmed.substringBefore("=").trim().lowercase()
+        return key in GLOBAL_KEYS
     }
 }
