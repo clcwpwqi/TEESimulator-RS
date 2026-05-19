@@ -146,9 +146,7 @@ object PatchLevelManager {
     private fun mergedContents(target: File, date: String): String {
         val globalBlock = "system=$date\nboot=$date\nvendor=$date\n"
         if (!target.exists()) return globalBlock
-        val tail =
-            runCatching { stripGlobalAssignments(target.readLines()) }.getOrNull()
-                ?: return globalBlock
+        val tail = stripGlobalAssignments(target.readLines())
         if (tail.isEmpty()) return globalBlock
         return globalBlock + tail.joinToString("\n", prefix = "\n", postfix = "\n")
     }
