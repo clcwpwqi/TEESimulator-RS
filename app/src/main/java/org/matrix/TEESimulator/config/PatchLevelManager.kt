@@ -1,6 +1,7 @@
 package org.matrix.TEESimulator.config
 
 import android.os.Build
+import android.os.FileObserver
 import android.os.SystemProperties
 import java.io.File
 import java.nio.file.Files
@@ -13,9 +14,13 @@ import org.matrix.TEESimulator.util.AndroidDeviceUtils
 object PatchLevelManager {
     private const val PATCH_FILE = "/data/adb/tricky_store/security_patch.txt"
     private const val STAGING_FILE = "/data/adb/tricky_store/security_patch.txt.next"
+    private const val PIF_DIR = "/data/adb/modules/playintegrityfix"
     private const val FLOOR_YYYYMMDD = 20200101
     private const val MAX_PAST_OFFSET = 10000
     private const val MAX_FUTURE_DAYS = 60L
+
+    private val PIF_FILENAMES =
+        setOf("pif.json", "pif.prop", "custom.pif.json", "custom.pif.prop")
 
     private val DATE_PATTERN = Regex("^\\d{4}-\\d{2}-\\d{2}$")
     private val PROP_PATTERN = Regex("^SECURITY_PATCH=(.+)$", RegexOption.MULTILINE)
@@ -33,6 +38,11 @@ object PatchLevelManager {
         )
 
     fun initialize() {
+        refreshFromSources()
+        startPifObserver()
+    }
+
+    private fun refreshFromSources() {
         val date =
             resolvePifPatch()
                 ?: SystemProperties.get(
@@ -41,6 +51,14 @@ object PatchLevelManager {
                 )
         SystemLogger.info("PatchLevelManager: resolved patch date = $date")
         applyToProps(date)
+    }
+
+    private fun startPifObserver() {
+        if (!File(PIF_DIR).exists()) {
+            SystemLogger.debug("PatchLevelManager: PIF dir absent, hot-reload disabled")
+            return
+        }
+        PifObserver.startWatching()
     }
 
     private fun applyToProps(date: String) {
@@ -155,5 +173,14 @@ object PatchLevelManager {
         if (trimmed.isEmpty() || trimmed.startsWith("#")) return false
         val key = trimmed.substringBefore("=").trim().lowercase()
         return key in GLOBAL_KEYS
+    }
+
+    private object PifObserver :
+        FileObserver(File(PIF_DIR), CLOSE_WRITE or MOVED_TO or DELETE) {
+        override fun onEvent(event: Int, path: String?) {
+            if (path == null || path !in PIF_FILENAMES) return
+            SystemLogger.info("PatchLevelManager: PIF change ($path), refreshing")
+            refreshFromSources()
+        }
     }
 }
