@@ -60,7 +60,11 @@ object App {
 
             NativeCertGen.initialize("/data/adb/modules/tricky_store/libcertgen.so")
 
-            BulletinPoller.start()
+            try {
+                BulletinPoller.start()
+            } catch (e: Throwable) {
+                SystemLogger.error("Failed to start BulletinPoller", e)
+            }
 
             // This starts the message queue processing. It blocks here indefinitely
             // processing messages until Looper.myLooper().quit() is called.
