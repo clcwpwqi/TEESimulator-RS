@@ -495,8 +495,7 @@ class KeyMintSecurityLevelInterceptor(
                         ConfigurationManager.shouldGenerate(callingUid) ||
                         (ConfigurationManager.shouldPatch(callingUid) && isAttestKeyRequest) ||
                         (attestationKey != null &&
-                            (attestationKey.alias?.let { isAttestationKey(KeyIdentifier(callingUid, it)) }
-                                ?: attestationKeys.any { kid -> kid.uid == callingUid && generatedKeys[kid]?.nspace == attestationKey.nspace }))
+                            isAttestationKey(KeyIdentifier(callingUid, attestationKey.alias)))
 
                 val isAuto = ConfigurationManager.isAutoMode(callingUid)
 
