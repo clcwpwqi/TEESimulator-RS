@@ -19,10 +19,27 @@ object InterceptorUtils {
 
     private const val EX_SERVICE_SPECIFIC = -8
 
+    private fun synthesizeSseMessage(errorCode: Int): String =
+        when (errorCode) {
+            2 -> "Error::Rc(SYSTEM_ERROR)"
+            4 -> "Error::Rc(PERMISSION_DENIED)"
+            6 -> "Error::Rc(VALUE_CORRUPTED)"
+            7 -> "Error::Rc(KEY_NOT_FOUND)"
+            10 -> "Error::Rc(BACKEND_BUSY)"
+            -3 -> "Error::Km(UNSUPPORTED_KEY_SIZE)"
+            -6 -> "Error::Km(INCOMPATIBLE_PURPOSE)"
+            -7 -> "Error::Km(INCOMPATIBLE_ALGORITHM)"
+            -29 -> "Error::Km(TOO_MANY_OPERATIONS)"
+            -49 -> "Error::Km(UNSUPPORTED_TAG)"
+            -75 -> "Error::Km(INVALID_INPUT_LENGTH)"
+            -76 -> "Error::Km(INVALID_TAG)"
+            else -> if (errorCode > 0) "Error::Rc($errorCode)" else "Error::Km($errorCode)"
+        }
+
     fun createErrorReply(errorCode: Int): BinderInterceptor.TransactionResult.OverrideReply {
         val parcel = Parcel.obtain().apply {
             writeInt(EX_SERVICE_SPECIFIC)
-            writeString(null)
+            writeString(synthesizeSseMessage(errorCode))
             writeInt(0) // empty remote stack trace header (AOSP Status.cpp:196)
             writeInt(errorCode)
         }
@@ -132,12 +149,25 @@ object InterceptorUtils {
 
     fun createServiceSpecificErrorReply(
         errorCode: Int
-    ): BinderInterceptor.TransactionResult.OverrideReply {
-        val parcel =
-            Parcel.obtain().apply {
-                writeException(android.os.ServiceSpecificException(errorCode))
-            }
-        return BinderInterceptor.TransactionResult.OverrideReply(parcel)
+    ): BinderInterceptor.TransactionResult.OverrideReply = createErrorReply(errorCode)
+
+    fun normalizeServiceSpecificReply(reply: Parcel): Parcel? {
+        reply.setDataPosition(0)
+        if (reply.readInt() != EX_SERVICE_SPECIFIC) {
+            reply.setDataPosition(0)
+            return null
+        }
+        // Advance position past message and stack header to reach errorCode.
+        reply.readString()
+        reply.readInt()
+        val errorCode = reply.readInt()
+        reply.setDataPosition(0)
+        return Parcel.obtain().apply {
+            writeInt(EX_SERVICE_SPECIFIC)
+            writeString(synthesizeSseMessage(errorCode))
+            writeInt(0)
+            writeInt(errorCode)
+        }
     }
 
     fun patchAuthorizations(
