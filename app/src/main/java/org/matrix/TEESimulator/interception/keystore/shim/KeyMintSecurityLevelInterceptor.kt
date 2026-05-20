@@ -495,10 +495,8 @@ class KeyMintSecurityLevelInterceptor(
                 val forceGenerate =
                     oversized ||
                         ConfigurationManager.shouldGenerate(callingUid) ||
-                        (ConfigurationManager.shouldPatch(callingUid) && isAttestKeyRequest) ||
-                        (attestationKey != null &&
-                            (attestationKey.alias?.let { isAttestationKey(KeyIdentifier(callingUid, it)) }
-                                ?: attestationKeys.any { kid -> kid.uid == callingUid && generatedKeys[kid]?.nspace == attestationKey.nspace }))
+                        isAttestKeyRequest ||
+                        attestationKey != null
 
                 SystemLogger.trace { "[TRACE-$txId] dispatch: forceGen=$forceGenerate hasChallenge=${challenge != null} isSymmetric=$isSymmetric isAttestKey=$isAttestKeyRequest" }
 
