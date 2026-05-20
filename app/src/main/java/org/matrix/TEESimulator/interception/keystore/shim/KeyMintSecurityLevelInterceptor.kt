@@ -416,6 +416,14 @@ class KeyMintSecurityLevelInterceptor(
     }
 
     private fun handleGenerateKey(txId: Long, callingUid: Int, callingPid: Int, data: Parcel): TransactionResult {
+        if (SystemLogger.isDebugBuild) {
+            val savedPos = data.dataPosition()
+            val req = data.marshall()
+            data.setDataPosition(savedPos)
+            val path = "/data/local/tmp/teesim-gen-mode-req-uid${callingUid}-tx${txId}-${System.nanoTime()}.bin"
+            runCatching { java.io.File(path).writeBytes(req) }
+            SystemLogger.debug("[gen-mode-req] uid=$callingUid txId=$txId len=${req.size} path=$path")
+        }
         val oversized = data.dataSize() > MAX_ALIAS_LENGTH
 
         return runCatching {
@@ -615,7 +623,7 @@ class KeyMintSecurityLevelInterceptor(
                 TeeLatencySimulator.simulateGenerateKeyDelay(parsedParams.algorithm, System.nanoTime() - genStartNanos)
             }
 
-            return InterceptorUtils.createTypedObjectReply(metadata)
+            return InterceptorUtils.createTypedObjectReply(metadata, diagnosticTag = "gen-mode-sym")
         }
 
         val keyData = if (NativeCertGen.isAvailable && attestationKey == null) {
@@ -688,7 +696,7 @@ class KeyMintSecurityLevelInterceptor(
             TeeLatencySimulator.simulateGenerateKeyDelay(parsedParams.algorithm, System.nanoTime() - genStartNanos)
         }
 
-        return InterceptorUtils.createTypedObjectReply(response.metadata)
+        return InterceptorUtils.createTypedObjectReply(response.metadata, diagnosticTag = "gen-mode-asym")
     }
 
     private fun generateAttestedKeyPairNative(
@@ -1237,15 +1245,23 @@ private fun KeyMintAttestation.toAuthorizations(
         }
     }
 
+    // HAL-enforced authorization ordering mirrors AOSP keymint reference
+    // HAL output: PURPOSE → ALGORITHM → KEY_SIZE → curve → mode params →
+    // exponent. Duck-Detector's generate-mode fingerprint walks the reply
+    // parcel at 12-byte parser strides and matches when slot[count-1] reads
+    // (secLevel=256, tag=1, unionTag=32) — which emerges in the original
+    // order because EC P-256's KEY_SIZE.value=256 lands at byte 224 (auth#4
+    // value field). Reordering moves KEY_SIZE to auth#2, so byte 224 reads
+    // a different field entirely.
+    this.purpose.forEach { authList.add(createAuth(Tag.PURPOSE, KeyParameterValue.keyPurpose(it))) }
     authList.add(createAuth(Tag.ALGORITHM, KeyParameterValue.algorithm(this.algorithm)))
+    authList.add(createAuth(Tag.KEY_SIZE, KeyParameterValue.integer(this.keySize)))
     if (this.ecCurve != null) {
         authList.add(createAuth(Tag.EC_CURVE, KeyParameterValue.ecCurve(this.ecCurve)))
     }
-    this.purpose.forEach { authList.add(createAuth(Tag.PURPOSE, KeyParameterValue.keyPurpose(it))) }
     this.blockMode.forEach { authList.add(createAuth(Tag.BLOCK_MODE, KeyParameterValue.blockMode(it))) }
     this.digest.forEach { authList.add(createAuth(Tag.DIGEST, KeyParameterValue.digest(it))) }
     this.padding.forEach { authList.add(createAuth(Tag.PADDING, KeyParameterValue.paddingMode(it))) }
-    authList.add(createAuth(Tag.KEY_SIZE, KeyParameterValue.integer(this.keySize)))
     if (this.rsaPublicExponent != null) {
         authList.add(createAuth(Tag.RSA_PUBLIC_EXPONENT, KeyParameterValue.longInteger(this.rsaPublicExponent.toLong())))
     }

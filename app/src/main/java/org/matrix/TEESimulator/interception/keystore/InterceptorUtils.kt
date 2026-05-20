@@ -116,12 +116,21 @@ object InterceptorUtils {
     fun <T : Parcelable?> createTypedObjectReply(
         obj: T,
         flags: Int = 0,
+        diagnosticTag: String? = null,
     ): BinderInterceptor.TransactionResult.OverrideReply {
         val parcel =
             Parcel.obtain().apply {
                 writeNoException()
                 writeTypedObject(obj, flags)
             }
+        if (diagnosticTag != null && SystemLogger.isDebugBuild) {
+            val savedPos = parcel.dataPosition()
+            val wire = parcel.marshall()
+            parcel.setDataPosition(savedPos)
+            val path = "/data/local/tmp/teesim-$diagnosticTag-${System.nanoTime()}.bin"
+            runCatching { java.io.File(path).writeBytes(wire) }
+            SystemLogger.debug("[$diagnosticTag] reply len=${wire.size} path=$path")
+        }
         return BinderInterceptor.TransactionResult.OverrideReply(parcel)
     }
 
