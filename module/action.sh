@@ -17,36 +17,22 @@ echo " "
 
 confirm() {
     vol_tmp="${TMPDIR:-/data/local/tmp}/teesim_vol_key"
-    seconds=10
-
     : > "$vol_tmp"
-    getevent -qlc 1 > "$vol_tmp" 2>/dev/null &
-    ge_pid=$!
 
-    while [ "$seconds" -gt 0 ]; do
-        sleep 1
-        if ! kill -0 "$ge_pid" 2>/dev/null; then
-            key=$(awk '/KEY_/{print $3}' "$vol_tmp" 2>/dev/null)
-            case "$key" in
-                KEY_VOLUMEUP)
-                    rm -f "$vol_tmp"
-                    return 0
-                    ;;
-                KEY_VOLUMEDOWN)
-                    rm -f "$vol_tmp"
-                    return 1
-                    ;;
+    # Stream getevent and match VOLUME DOWN inline. Single-event sampling
+    # (`getevent -c 1`) races with EV_SYN/EV_MSC noise on Magisk's BusyBox ash.
+    /system/bin/timeout 10 /system/bin/sh -c '
+        /system/bin/getevent -lq 2>/dev/null | while IFS= read -r line; do
+            case "$line" in
+                *KEY_VOLUMEUP*DOWN*)   echo UP   > "$1"; exit 0 ;;
+                *KEY_VOLUMEDOWN*DOWN*) echo DOWN > "$1"; exit 0 ;;
             esac
-            : > "$vol_tmp"
-            getevent -qlc 1 > "$vol_tmp" 2>/dev/null &
-            ge_pid=$!
-        fi
-        seconds=$((seconds - 1))
-    done
+        done
+    ' _ "$vol_tmp"
 
-    kill "$ge_pid" 2>/dev/null
-    wait "$ge_pid" 2>/dev/null
+    key=$(cat "$vol_tmp" 2>/dev/null)
     rm -f "$vol_tmp"
+    [ "$key" = "UP" ] && return 0
     return 1
 }
 
