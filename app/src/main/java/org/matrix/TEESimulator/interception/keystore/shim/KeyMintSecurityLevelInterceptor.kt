@@ -79,7 +79,7 @@ class KeyMintSecurityLevelInterceptor(
             CREATE_OPERATION_TRANSACTION -> {
                 logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
 
-                if (!ConfigurationManager.shouldSkipUid(callingUid)) return handleCreateOperation(txId, callingUid, data)
+                return handleCreateOperation(txId, callingUid, data)
             }
             IMPORT_KEY_TRANSACTION -> {
                 logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
