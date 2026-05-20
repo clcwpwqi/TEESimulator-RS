@@ -70,18 +70,16 @@ class KeyMintSecurityLevelInterceptor(
         callingPid: Int,
         data: Parcel,
     ): TransactionResult {
-        val shouldSkip = ConfigurationManager.shouldSkipUid(callingUid)
-
         when (code) {
             GENERATE_KEY_TRANSACTION -> {
                 logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
 
-                if (!shouldSkip) return handleGenerateKey(txId, callingUid, callingPid, data)
+                return handleGenerateKey(txId, callingUid, callingPid, data)
             }
             CREATE_OPERATION_TRANSACTION -> {
                 logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
 
-                if (!shouldSkip) return handleCreateOperation(txId, callingUid, data)
+                if (!ConfigurationManager.shouldSkipUid(callingUid)) return handleCreateOperation(txId, callingUid, data)
             }
             IMPORT_KEY_TRANSACTION -> {
                 logTransaction(txId, transactionNames[code]!!, callingUid, callingPid)
@@ -430,6 +428,12 @@ class KeyMintSecurityLevelInterceptor(
                 )
                 val params = data.createTypedArray(KeyParameter.CREATOR)!!
                 val parsedParams = KeyMintAttestation(params)
+                val isAttestKeyRequest = parsedParams.isAttestKey()
+
+                if (ConfigurationManager.shouldSkipUid(callingUid)
+                    && attestationKey == null && !isAttestKeyRequest) {
+                    return TransactionResult.ContinueAndSkipPost
+                }
 
                 SystemLogger.trace { "[TRACE-$txId] generateKey alias=${keyDescriptor.alias} algo=${parsedParams.algorithm} challenge=${parsedParams.attestationChallenge?.size ?: "null"} serial=${parsedParams.serial != null} imei=${parsedParams.imei != null} noAuth=${parsedParams.noAuthRequired} purposes=${parsedParams.purpose}" }
                 if (SystemLogger.isDebugBuild) params.forEach { p ->
@@ -490,7 +494,6 @@ class KeyMintSecurityLevelInterceptor(
                 }
 
                 val keyId = KeyIdentifier(callingUid, keyDescriptor.alias)
-                val isAttestKeyRequest = parsedParams.isAttestKey()
 
                 val forceGenerate =
                     oversized ||
