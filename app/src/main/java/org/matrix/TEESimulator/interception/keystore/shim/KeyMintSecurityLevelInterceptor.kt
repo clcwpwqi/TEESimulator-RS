@@ -29,6 +29,7 @@ import java.util.concurrent.locks.LockSupport
 import org.matrix.TEESimulator.attestation.AttestationBuilder
 import org.matrix.TEESimulator.attestation.AttestationConstants
 import org.matrix.TEESimulator.attestation.AttestationPatcher
+import org.matrix.TEESimulator.attestation.DeviceAttestationService
 import org.matrix.TEESimulator.attestation.KeyMintAttestation
 import org.matrix.TEESimulator.config.ConfigurationManager
 import org.matrix.TEESimulator.interception.core.BinderInterceptor
@@ -475,6 +476,22 @@ class KeyMintSecurityLevelInterceptor(
                     it.tag == Tag.ATTESTATION_ID_SERIAL || 
                     it.tag == Tag.DEVICE_UNIQUE_ATTESTATION || 
                     it.tag == Tag.ATTESTATION_ID_SECOND_IMEI 
+                }
+
+                val hasDevicePropertyAttestation = parsedParams.brand != null ||
+                    parsedParams.device != null ||
+                    parsedParams.product != null ||
+                    parsedParams.manufacturer != null ||
+                    parsedParams.model != null
+
+                // Mirror the real TEE's capability: hardware that never provisioned device IDs
+                // returns CANNOT_ATTEST_IDS. Synthesizing device-ID/property attestation a chip of
+                // this class cannot produce is an over-capability tell — a genuine device fails the
+                // same request. Forge health, mirror capability.
+                if ((hasDeviceIdAttestation || hasDevicePropertyAttestation) &&
+                    !DeviceAttestationService.canAttestDeviceIds) {
+                    SystemLogger.info("[TX_ID: $txId] Real TEE cannot attest device IDs; returning CANNOT_ATTEST_IDS for uid=$callingUid (mirroring hardware)")
+                    return InterceptorUtils.createErrorReply(KEYMINT_CANNOT_ATTEST_IDS)
                 }
 
                 if(hasDeviceIdAttestation && !AndroidPermissionUtils.hasDeviceAttestationPermission(callingUid)) {
