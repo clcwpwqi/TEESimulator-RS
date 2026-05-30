@@ -1167,9 +1167,11 @@ class KeyMintSecurityLevelInterceptor(
         private val interceptedOperations = ConcurrentHashMap<IBinder, OperationInterceptor>()
 
         /**
-         * Grant plane (duck PR #38 / #57). A grant is caller-bound and carries an
-         * access vector; resolving one yields the owner's own KeyEntryResponse so
-         * every access plane returns a coherent certificate chain.
+         * Grant plane for the public `KeyStoreManager.grantKeyAccess()` API (Android 16, API 36+).
+         * On Android <= 15 grant was a hidden API denied to untrusted_app, so this state stays
+         * empty there (the GRANT_TRANSACTION handler returns PERMISSION_DENIED for synthetic keys
+         * pre-36). A grant is caller-bound and carries an access vector; resolving one yields the
+         * owner's own KeyEntryResponse so every access plane returns a coherent certificate chain.
          */
         data class SoftwareGrant(
             val ownerKeyId: KeyIdentifier,

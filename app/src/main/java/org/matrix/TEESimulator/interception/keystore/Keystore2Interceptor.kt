@@ -62,6 +62,11 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
 
     private const val RESPONSE_KEY_NOT_FOUND = 7
     private const val RESPONSE_PERMISSION_DENIED = 6
+
+    // KeyStoreManager.grantKeyAccess() became a public app API in Android 16 (API 36). Before that,
+    // grant was a hidden API and SELinux denied untrusted_app, so a synthetic-key grant must answer
+    // PERMISSION_DENIED pre-36 and a coherent virtualized grant on 36+.
+    private const val GRANT_PUBLIC_API_SDK = 36
     private val deletedSoftwareKeys: MutableSet<KeyIdentifier> = ConcurrentHashMap.newKeySet()
     private val userUpdatedKeys = ConcurrentHashMap.newKeySet<KeyIdentifier>()
 
@@ -191,25 +196,23 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                 data.readTypedObject(KeyDescriptor.CREATOR)
                     ?: return TransactionResult.ContinueAndSkipPost
 
-            // A Domain.GRANT read is served for ANY grantee uid — including isolated
-            // services (bindIsolatedService) that have no package mapping, so
-            // shouldSkipUid would otherwise drop them to the real keystore2. Resolve it
-            // before the package-scoped skip: caller-binding in resolveGrant() is the
-            // real access gate, mirroring keystore2 (a grant row is keyed on grantee+id,
-            // independent of the caller's policy).
+            // Domain.GRANT read (Android 16+ KeyStoreManager grant). Served for ANY grantee uid —
+            // including isolated services (bindIsolatedService) with no package mapping — so resolve
+            // it before the package-scoped skip; caller-binding in resolveGrant() is the real access
+            // gate. On Android <= 15 no grants are ever issued (grant() denies), so softwareGrants is
+            // empty and this falls through to the real keystore2.
             if (code == GET_KEY_ENTRY_TRANSACTION && descriptor.domain == Domain.GRANT) {
                 val grant =
                     KeyMintSecurityLevelInterceptor.resolveGrant(descriptor.nspace, callingUid)
                 if (grant == null) {
-                    // Ours but wrong caller -> KEY_NOT_FOUND (#57 probe 4, caller-binding);
-                    // not ours -> fall through to the real keystore2.
+                    // Ours but wrong caller -> KEY_NOT_FOUND (caller-binding); not ours -> real keystore2.
                     return if (
                         KeyMintSecurityLevelInterceptor.softwareGrants.containsKey(descriptor.nspace)
                     )
                         InterceptorUtils.createErrorReply(RESPONSE_KEY_NOT_FOUND)
                     else TransactionResult.ContinueAndSkipPost
                 }
-                if ((grant.accessVector and 0x4) == 0) { // GET_INFO = 0x4 (#57 probe 3)
+                if ((grant.accessVector and 0x4) == 0) { // GET_INFO = 0x4 (access-vector gate)
                     return InterceptorUtils.createErrorReply(RESPONSE_PERMISSION_DENIED)
                 }
                 val response =
@@ -283,8 +286,8 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                         return InterceptorUtils.createTypedObjectReply(teeResp)
                     }
                 }
-                // Domain.GRANT is handled earlier (before the package-scoped skip),
-                // so an alias-less read that reaches here is KEY_ID or unknown.
+                // Domain.GRANT is handled earlier (before the package-scoped skip); an alias-less
+                // read reaching here is KEY_ID or unknown, so it falls through to the real keystore2.
                 return TransactionResult.ContinueAndSkipPost
             }
             val keyId = KeyIdentifier(callingUid, descriptor.alias)
@@ -314,10 +317,20 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                     ?: return TransactionResult.ContinueAndSkipPost
             val granteeUid = data.readInt()
             val accessVector = data.readInt()
+            // Only synthetic keys are ours; real keys fall through to the real keystore2, which
+            // applies the same SELinux gate the platform would.
             val ownerKeyId =
                 resolveOwnerKeyId(key, callingUid)
                     ?.takeIf { KeyMintSecurityLevelInterceptor.generatedKeys.containsKey(it) }
-                    ?: return TransactionResult.ContinueAndSkipPost // real key -> real keystore2
+                    ?: return TransactionResult.ContinueAndSkipPost
+            // Version-gated to mirror the real TEE 1:1. Pre-Android-16, grant was a hidden API and
+            // SELinux denied untrusted_app, so keystore2 returns PERMISSION_DENIED. Android 16
+            // (API 36) exposes KeyStoreManager.grantKeyAccess(), so an app grants its own key:
+            // issue a coherent, caller-bound, access-vector-carrying grant whose Domain.GRANT read
+            // returns the owner's chain.
+            if (Build.VERSION.SDK_INT < GRANT_PUBLIC_API_SDK) {
+                return InterceptorUtils.createErrorReply(RESPONSE_PERMISSION_DENIED)
+            }
             val grantId =
                 KeyMintSecurityLevelInterceptor.issueGrant(ownerKeyId, granteeUid, accessVector)
             val reply =
@@ -339,6 +352,10 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                 resolveOwnerKeyId(key, callingUid)
                     ?.takeIf { KeyMintSecurityLevelInterceptor.generatedKeys.containsKey(it) }
                     ?: return TransactionResult.ContinueAndSkipPost
+            // Same version gate as grant(): denied pre-36, revoke the virtualized grant on 36+.
+            if (Build.VERSION.SDK_INT < GRANT_PUBLIC_API_SDK) {
+                return InterceptorUtils.createErrorReply(RESPONSE_PERMISSION_DENIED)
+            }
             KeyMintSecurityLevelInterceptor.revokeGrant(ownerKeyId, granteeUid)
             return InterceptorUtils.createSuccessReply(writeResultCode = false)
         } else {
