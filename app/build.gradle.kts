@@ -30,7 +30,7 @@ val gitExecutor = objects.newInstance(GitExecutor::class.java)
 
 val gitCommitCount = gitExecutor.execute("git rev-list HEAD --count", rootDir).toInt()
 val gitCommitHash = gitExecutor.execute("git rev-parse --verify --short HEAD", rootDir)
-val verName = "v6.0.0"
+val verName = "v6.0.1"
 
 android {
     namespace = "org.matrix.TEESimulator"
