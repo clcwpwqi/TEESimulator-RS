@@ -443,8 +443,39 @@ class KeyMintSecurityLevelInterceptor(
                 var parsedParams = KeyMintAttestation(params)
                 val isAttestKeyRequest = parsedParams.isAttestKey()
 
+                val hasDeviceIdAttestation = params.any {
+                    it.tag == Tag.ATTESTATION_ID_IMEI ||
+                        it.tag == Tag.ATTESTATION_ID_MEID ||
+                        it.tag == Tag.ATTESTATION_ID_SERIAL ||
+                        it.tag == Tag.DEVICE_UNIQUE_ATTESTATION ||
+                        it.tag == Tag.ATTESTATION_ID_SECOND_IMEI
+                }
+
+                // Debug-only probe trail: one greppable line per generateKey carrying the resolving
+                // package and the outcome. Release builds short-circuit before any string is built,
+                // so this is silent and artifact-free in production.
+                fun logProbe(outcome: String) {
+                    if (!SystemLogger.isDebugBuild) return
+                    val pkg = ConfigurationManager.getPackagesForUid(callingUid).firstOrNull()
+                        ?: "uid:$callingUid"
+                    val tags = buildList {
+                        if (parsedParams.attestationChallenge != null) add("challenge")
+                        if (parsedParams.brand != null || parsedParams.device != null ||
+                            parsedParams.product != null || parsedParams.manufacturer != null ||
+                            parsedParams.model != null) add("props")
+                        if (hasDeviceIdAttestation) add("ids")
+                        if (params.any { it.tag == Tag.INCLUDE_UNIQUE_ID }) add("unique_id")
+                    }.joinToString(",")
+                    SystemLogger.debug(
+                        "[probe] tx=$txId uid=$callingUid pkg=$pkg alias=${keyDescriptor.alias} " +
+                            "algo=${parsedParams.algorithm} sb=${securityLevel == SecurityLevel.STRONGBOX} " +
+                            "tags=[$tags] -> $outcome"
+                    )
+                }
+
                 if (ConfigurationManager.shouldSkipUid(callingUid)
                     && attestationKey == null && !isAttestKeyRequest) {
+                    logProbe("SKIP")
                     return TransactionResult.ContinueAndSkipPost
                 }
 
@@ -456,25 +487,20 @@ class KeyMintSecurityLevelInterceptor(
                 val challenge = parsedParams.attestationChallenge
                 if (challenge != null && challenge.size > AttestationConstants.CHALLENGE_LENGTH_LIMIT) {
                     SystemLogger.warning("[TX_ID: $txId] Rejecting oversized attestation challenge: ${challenge.size} bytes (max ${AttestationConstants.CHALLENGE_LENGTH_LIMIT})")
+                    logProbe("REJECT:challenge_len")
                     return InterceptorUtils.createErrorReply(KEYMINT_INVALID_INPUT_LENGTH)
                 }
 
                 if (params.any { it.tag == Tag.CREATION_DATETIME }) {
                     SystemLogger.warning("[TX_ID: $txId] Rejecting CREATION_DATETIME in generateKey params")
+                    logProbe("REJECT:creation_datetime")
                     return InterceptorUtils.createErrorReply(RESPONSE_INVALID_ARGUMENT)
                 }
 
                 if (params.any { it.tag == Tag.DEVICE_UNIQUE_ATTESTATION } && !AndroidPermissionUtils.hasUniqueIdAttestationPermission(callingUid)) {
                     SystemLogger.warning("[TX_ID: $txId] Rejecting DEVICE_UNIQUE_ATTESTATION for uid=$callingUid")
+                    logProbe("REJECT:cannot_attest_unique")
                     return InterceptorUtils.createErrorReply(KEYMINT_CANNOT_ATTEST_IDS)
-                }
-
-                val hasDeviceIdAttestation = params.any { 
-                    it.tag == Tag.ATTESTATION_ID_IMEI || 
-                    it.tag == Tag.ATTESTATION_ID_MEID || 
-                    it.tag == Tag.ATTESTATION_ID_SERIAL || 
-                    it.tag == Tag.DEVICE_UNIQUE_ATTESTATION || 
-                    it.tag == Tag.ATTESTATION_ID_SECOND_IMEI 
                 }
 
                 // Device-ID attestation mirrors a real KeyMint: privileged callers (GMS/system)
@@ -484,6 +510,7 @@ class KeyMintSecurityLevelInterceptor(
                 // path needs. Capability is keyed to the device we present, not the real (dead) TEE.
                 if(hasDeviceIdAttestation && !AndroidPermissionUtils.hasDeviceAttestationPermission(callingUid)) {
                     SystemLogger.warning("[TX_ID: $txId] Rejecting DEVICE_ID_ATTESTATION for uid=$callingUid")
+                    logProbe("REJECT:cannot_attest_ids")
                     return InterceptorUtils.createErrorReply(KEYMINT_CANNOT_ATTEST_IDS)
                 }
 
@@ -517,6 +544,7 @@ class KeyMintSecurityLevelInterceptor(
 
                 if (securityLevel == SecurityLevel.STRONGBOX && !isStrongBoxCapable(parsedParams)) {
                     SystemLogger.info("[TX_ID: $txId] StrongBox-unsupported params (algo=${parsedParams.algorithm} size=${parsedParams.keySize}) → forwarding to HAL for rejection")
+                    logProbe("FORWARD_HAL")
                     return TransactionResult.ContinueAndSkipPost
                 }
 
@@ -531,9 +559,16 @@ class KeyMintSecurityLevelInterceptor(
                 SystemLogger.trace { "[TRACE-$txId] dispatch: forceGen=$forceGenerate hasChallenge=${challenge != null} isSymmetric=$isSymmetric isAttestKey=$isAttestKeyRequest" }
 
                 when {
-                    forceGenerate -> doSoftwareKeyGen(callingUid, keyDescriptor, attestationKey, parsedParams, keyId, isAttestKeyRequest)
-                    parsedParams.attestationChallenge != null -> TransactionResult.Continue
+                    forceGenerate -> {
+                        logProbe("FORGE")
+                        doSoftwareKeyGen(callingUid, keyDescriptor, attestationKey, parsedParams, keyId, isAttestKeyRequest)
+                    }
+                    parsedParams.attestationChallenge != null -> {
+                        logProbe("PATCH")
+                        TransactionResult.Continue
+                    }
                     else -> {
+                        logProbe("PASSTHROUGH")
                         cleanupKeyData(keyId)
                         TransactionResult.Continue
                     }
