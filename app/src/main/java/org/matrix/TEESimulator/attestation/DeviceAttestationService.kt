@@ -1,6 +1,7 @@
 package org.matrix.TEESimulator.attestation
 
 import android.annotation.SuppressLint
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyPairGenerator
@@ -60,11 +61,22 @@ object DeviceAttestationService {
     // A unique alias for the key used to perform the TEE functionality check.
     private const val TEE_CHECK_KEY_ALIAS = "TEESimulator_AttestationCheck"
 
+    // Alias for the device-ID attestation capability probe.
+    private const val DEVICE_ID_CHECK_KEY_ALIAS = "TEESimulator_DeviceIdCheck"
+
     /**
      * Lazily determines if the device's TEE is functional by attempting to generate an
      * attestation-backed key pair. The result is cached.
      */
     val isTeeFunctional: Boolean by lazy { checkTeeFunctionality() }
+
+    /**
+     * Lazily mirrors whether the real TEE can attest device identifiers/properties (the tags added
+     * by `setDevicePropertiesAttestationIncluded`). Hardware that never provisioned device IDs
+     * returns CANNOT_ATTEST_IDS; the synthesizer consults this so it never forges a capability the
+     * real silicon lacks. Cached.
+     */
+    val canAttestDeviceIds: Boolean by lazy { checkDeviceIdAttestation() }
 
     /**
      * Lazily fetches and parses attestation data from a genuinely generated certificate. The result
@@ -102,6 +114,37 @@ object DeviceAttestationService {
             true
         } catch (e: Exception) {
             SystemLogger.warning("TEE functionality check failed.", e)
+            false
+        }
+    }
+
+    /**
+     * Probes whether the real TEE can satisfy device-ID/property attestation, mirroring its actual
+     * capability. Gated behind [isTeeFunctional] so a dead TEE never triggers a second doomed
+     * probe — it simply reports `false` (cannot attest), the faithful result for such hardware.
+     */
+    private fun checkDeviceIdAttestation(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        if (!isTeeFunctional) return false
+        return try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val keyPairGenerator =
+                KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+            val challenge = ByteArray(16).apply { SecureRandom().nextBytes(this) }
+            val spec =
+                KeyGenParameterSpec.Builder(DEVICE_ID_CHECK_KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
+                    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setAttestationChallenge(challenge)
+                    .setDevicePropertiesAttestationIncluded(true)
+                    .build()
+            keyPairGenerator.initialize(spec)
+            keyPairGenerator.generateKeyPair()
+            runCatching { keyStore.deleteEntry(DEVICE_ID_CHECK_KEY_ALIAS) }
+            SystemLogger.info("Device-ID attestation supported by TEE.")
+            true
+        } catch (_: Exception) {
+            SystemLogger.info("Device-ID attestation not supported by TEE; mirroring as cannot-attest.")
             false
         }
     }
