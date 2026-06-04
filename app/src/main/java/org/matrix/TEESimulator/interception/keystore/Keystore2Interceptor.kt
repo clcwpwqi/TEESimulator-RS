@@ -18,6 +18,7 @@ import org.matrix.TEESimulator.attestation.KeyMintAttestation
 import org.matrix.TEESimulator.config.ConfigurationManager
 import org.matrix.TEESimulator.interception.keystore.shim.GeneratedKeyPersistence
 import org.matrix.TEESimulator.interception.keystore.shim.KeyMintSecurityLevelInterceptor
+import org.matrix.TEESimulator.logging.AttestationDossier
 import org.matrix.TEESimulator.logging.KeyMintParameterLogger
 import org.matrix.TEESimulator.logging.SystemLogger
 import org.matrix.TEESimulator.pki.CertificateGenerator
@@ -348,7 +349,7 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
 
             SystemLogger.info("[TX_ID: $txId] Found generated response for ${descriptor.alias}:")
             response.metadata?.authorizations?.forEach {
-                KeyMintParameterLogger.logParameter(it.keyParameter)
+                KeyMintParameterLogger.logParameter(callingUid, txId, it.keyParameter)
             }
             return InterceptorUtils.createTypedObjectReply(response)
         } else if (code == GRANT_TRANSACTION) {
@@ -652,6 +653,10 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                             response.metadata.authorizations,
                             callingUid,
                         )
+
+                    // PATCH decode point: the patched chain actually served back to the app on
+                    // getKeyEntry — the ground truth a patch-mode detector reads.
+                    AttestationDossier.log(callingUid, txId, "PATCH", finalChain.asList())
 
                     return InterceptorUtils.createTypedObjectReply(response)
                 }

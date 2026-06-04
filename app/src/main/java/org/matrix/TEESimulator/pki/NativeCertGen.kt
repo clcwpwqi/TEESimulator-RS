@@ -52,6 +52,10 @@ data class CertGenConfig(
     val callerNonce: Boolean = false,
     val unlockedDeviceRequired: Boolean = false,
     val noAuthRequired: Boolean = true,
+    // Diagnostic plane: the calling app UID keys the native log lines, and debugLogging mirrors the
+    // APK debug variant so the native extension dump is silent in release.
+    val uid: Int,
+    val debugLogging: Boolean,
 )
 
 object NativeCertGen {

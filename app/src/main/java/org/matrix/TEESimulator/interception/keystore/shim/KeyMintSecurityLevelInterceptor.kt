@@ -34,6 +34,7 @@ import org.matrix.TEESimulator.interception.core.BinderInterceptor
 import org.matrix.TEESimulator.interception.keystore.InterceptorUtils
 import org.matrix.TEESimulator.interception.keystore.KeyIdentifier
 import org.matrix.TEESimulator.interception.keystore.Keystore2Interceptor
+import org.matrix.TEESimulator.logging.AttestationDossier
 import org.matrix.TEESimulator.logging.SystemLogger
 import org.matrix.TEESimulator.pki.CertGenConfig
 import org.matrix.TEESimulator.pki.CertificateGenerator
@@ -273,6 +274,9 @@ class KeyMintSecurityLevelInterceptor(
             CertificateHelper.updateCertificateChain(metadata, newChain).getOrThrow()
             metadata.authorizations =
                 InterceptorUtils.patchAuthorizations(metadata.authorizations, callingUid)
+
+            // PATCH decode point: the chain we rewrote onto a real TEE generateKey reply.
+            AttestationDossier.log(callingUid, txId, "PATCH", newChain.asList())
 
             cleanupKeyData(keyId)
             patchedChains[keyId] = newChain
@@ -556,14 +560,12 @@ class KeyMintSecurityLevelInterceptor(
                             it.tag == Tag.ATTESTATION_ID_SECOND_IMEI
                     }
 
-                // Debug-only probe trail: one greppable line per generateKey carrying the resolving
-                // package and the outcome. Release builds short-circuit before any string is built,
-                // so this is silent and artifact-free in production.
+                // One `dispatch` record per generateKey on the targeted UID's diagnostic plane,
+                // carrying the resolved outcome and the request shape that drove it. Scoped to
+                // targeted UIDs, so the SKIP flood from every other app never reaches the plane;
+                // release builds short-circuit before any string is built.
                 fun logProbe(outcome: String) {
-                    if (!SystemLogger.isDebugBuild) return
-                    val pkg =
-                        ConfigurationManager.getPackagesForUid(callingUid).firstOrNull()
-                            ?: "uid:$callingUid"
+                    if (!SystemLogger.isUidLogged(callingUid)) return
                     val tags =
                         buildList {
                                 if (parsedParams.attestationChallenge != null) add("challenge")
@@ -579,10 +581,13 @@ class KeyMintSecurityLevelInterceptor(
                                 if (params.any { it.tag == Tag.INCLUDE_UNIQUE_ID }) add("unique_id")
                             }
                             .joinToString(",")
-                    SystemLogger.debug(
-                        "[probe] tx=$txId uid=$callingUid pkg=$pkg alias=${keyDescriptor.alias} " +
+                    SystemLogger.uidLog(
+                        callingUid,
+                        txId,
+                        "dispatch",
+                        "outcome=$outcome alias=${keyDescriptor.alias} " +
                             "algo=${parsedParams.algorithm} sb=${securityLevel == SecurityLevel.STRONGBOX} " +
-                            "tags=[$tags] -> $outcome"
+                            "tags=[$tags]",
                     )
                 }
 
@@ -711,6 +716,7 @@ class KeyMintSecurityLevelInterceptor(
                     forceGenerate -> {
                         logProbe("FORGE")
                         doSoftwareKeyGen(
+                            txId,
                             callingUid,
                             keyDescriptor,
                             attestationKey,
@@ -737,6 +743,7 @@ class KeyMintSecurityLevelInterceptor(
     }
 
     private fun doSoftwareKeyGen(
+        txId: Long,
         callingUid: Int,
         keyDescriptor: KeyDescriptor,
         attestationKey: KeyDescriptor?,
@@ -851,9 +858,12 @@ class KeyMintSecurityLevelInterceptor(
             return InterceptorUtils.createTypedObjectReply(metadata, diagnosticTag = "gen-mode-sym")
         }
 
+        var forgePath = "FORGE-bouncycastle"
         val keyData =
             if (NativeCertGen.isAvailable && attestationKey == null) {
-                generateAttestedKeyPairNative(callingUid, parsedParams)
+                generateAttestedKeyPairNative(callingUid, parsedParams)?.also {
+                    forgePath = "FORGE-rust"
+                }
                     ?: CertificateGenerator.generateAttestedKeyPair(
                         callingUid,
                         keyDescriptor.alias,
@@ -870,6 +880,11 @@ class KeyMintSecurityLevelInterceptor(
                     securityLevel,
                 )
             } ?: throw Exception("Both native and BouncyCastle cert gen failed.")
+
+        // FORGE decode point: dump the dossier of the chain we just forged, tagged with the forger
+        // that produced it. uid + txId are both in scope here, so this is the cheapest place to
+        // capture ground truth for a generate-mode app.
+        AttestationDossier.log(callingUid, txId, forgePath, keyData.second)
 
         val response =
             buildKeyEntryResponse(callingUid, keyData.second, parsedParams, keyDescriptor)
@@ -1015,6 +1030,8 @@ class KeyMintSecurityLevelInterceptor(
                         callerNonce = params.callerNonce == true,
                         unlockedDeviceRequired = params.unlockedDeviceRequired == true,
                         noAuthRequired = params.noAuthRequired != false,
+                        uid = callingUid,
+                        debugLogging = SystemLogger.isDebugBuild,
                     )
 
                 val resultBytes = NativeCertGen.generateAttestedKeyPair(config) ?: return null

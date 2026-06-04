@@ -74,24 +74,28 @@ object App {
     }
 
     /**
-     * Release builds never emit diagnostics. Sweep any `.bin` dumps a prior debug install left in
-     * the world-readable temp dir so they can't act as a detection artifact for apps that probe
-     * /data/local/tmp.
+     * Release builds never emit diagnostics. Sweep anything a prior debug install left behind so it
+     * cannot act as a detection artifact: the `.bin` dumps in the world-readable temp dir, and the
+     * per-UID diagnostic logs under the config dir.
      */
     private fun purgeDebugDiagnostics() {
         if (SystemLogger.isDebugBuild) return
-        val stale =
-            File("/data/local/tmp").listFiles { _, name ->
-                name.startsWith("teesim-") && name.endsWith(".bin")
-            } ?: return
-        stale.forEach { runCatching { it.delete() } }
-        if (stale.isNotEmpty()) {
-            // warning() bypasses the rate limiter, so this once-per-boot audit
-            // line survives the noisy startup window.
-            SystemLogger.warning(
-                "Purged ${stale.size} stale debug diagnostic(s) from /data/local/tmp"
-            )
+        purgeStale(File("/data/local/tmp"), "/data/local/tmp") { name ->
+            name.startsWith("teesim-") && name.endsWith(".bin")
         }
+        purgeStale(File("${ConfigurationManager.CONFIG_PATH}/logs"), "per-UID log dir") { name ->
+            name.startsWith("teesim-uid-") && (name.endsWith(".log") || name.endsWith(".log.1"))
+        }
+    }
+
+    /** Deletes matching files in [dir], logging a single once-per-boot audit line if any existed. */
+    private fun purgeStale(dir: File, label: String, matches: (String) -> Boolean) {
+        val stale = dir.listFiles { _, name -> matches(name) } ?: return
+        if (stale.isEmpty()) return
+        stale.forEach { runCatching { it.delete() } }
+        // warning() bypasses the rate limiter, so this once-per-boot audit line survives the noisy
+        // startup window.
+        SystemLogger.warning("Purged ${stale.size} stale debug diagnostic(s) from $label")
     }
 
     /** Initializes the necessary Android framework internals to satisfy KeyStore requirements. */

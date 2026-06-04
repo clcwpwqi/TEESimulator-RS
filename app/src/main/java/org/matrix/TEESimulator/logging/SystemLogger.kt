@@ -1,9 +1,17 @@
 package org.matrix.TEESimulator.logging
 
 import android.util.Log
+import java.io.BufferedWriter
+import java.io.File
+import java.io.FileWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import org.matrix.TEESimulator.BuildConfig
+import org.matrix.TEESimulator.config.ConfigurationManager
 
 /**
  * A centralized logging utility for the TEESimulator application. This object provides a consistent
@@ -117,5 +125,98 @@ object SystemLogger {
     inline fun trace(message: () -> String) {
         if (!isDebugBuild) return
         Log.w(TAG, message())
+    }
+
+    // --- UID-keyed diagnostic plane (debug builds only) -------------------------------------
+
+    /**
+     * True when [uid] should receive deep, per-UID diagnostic logging: a debug build AND the UID is
+     * targeted in `target.txt`. This is the single scope gate for the diagnostic plane; it reuses
+     * the existing activation set, so no new configuration surface is introduced.
+     */
+    fun isUidLogged(uid: Int): Boolean = isDebugBuild && !ConfigurationManager.shouldSkipUid(uid)
+
+    /** Resolves a UID to its primary package name for log labelling, falling back to `uid:N`. */
+    private fun label(uid: Int): String =
+        ConfigurationManager.getPackagesForUid(uid).firstOrNull() ?: "uid:$uid"
+
+    /**
+     * Emits one structured diagnostic record for a targeted [uid] as `[<pkg> tx=<txId>] <event>:
+     * <detail>`. The record is mirrored to logcat and appended to that UID's own file. In-scope
+     * records bypass the global rate limiter — a targeted app's traffic is already volume-bounded,
+     * and dropping a line mid-probe would corrupt the very trace we are trying to read. No-op for
+     * untargeted UIDs and in release builds.
+     */
+    fun uidLog(uid: Int, txId: Long?, event: String, detail: String) {
+        if (!isUidLogged(uid)) return
+        val correlation = txId?.let { " tx=$it" } ?: ""
+        val line = "[${label(uid)}$correlation] $event: $detail"
+        Log.d(TAG, line)
+        runCatching { uidWriter(uid).append(line) }
+    }
+
+    /** Lazy [uidLog]: [detail] is only built for targeted UIDs in debug builds. */
+    inline fun uidLog(uid: Int, txId: Long?, event: String, detail: () -> String) {
+        if (!isUidLogged(uid)) return
+        uidLog(uid, txId, event, detail())
+    }
+
+    private val uidLogDir = File(ConfigurationManager.CONFIG_PATH, "logs")
+    private const val UID_LOG_MAX_BYTES = 4L * 1024 * 1024
+    private val uidWriters = ConcurrentHashMap<Int, UidLogFile>()
+
+    private fun uidWriter(uid: Int): UidLogFile = uidWriters.getOrPut(uid) { UidLogFile(uid, uidLogDir) }
+
+    /**
+     * An append-only diagnostic file for a single UID at `<logDir>/teesim-uid-<uid>.log`, rotated
+     * once to `.log.1` at [UID_LOG_MAX_BYTES]. Writes are synchronised because the keystore binder
+     * pool is multi-threaded, and every operation is wrapped so a logging fault can never propagate
+     * into the daemon. Created only on the debug-gated path, so release builds never touch this dir.
+     */
+    private class UidLogFile(private val uid: Int, private val logDir: File) {
+        private val primary = File(logDir, "teesim-uid-$uid.log")
+        private val rotated = File(logDir, "teesim-uid-$uid.log.1")
+        private val clock = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+        private var writer: BufferedWriter? = null
+        private var size = 0L
+
+        @Synchronized
+        fun append(message: String) {
+            runCatching {
+                val out = writer ?: open()
+                val line = "${clock.format(Date())} $message\n"
+                out.write(line)
+                out.flush()
+                size += line.length
+                if (size >= UID_LOG_MAX_BYTES) rotate()
+            }
+        }
+
+        private fun open(): BufferedWriter {
+            logDir.mkdirs()
+            val out = BufferedWriter(FileWriter(primary, /* append = */ true))
+            writer = out
+            size = primary.length()
+            val packages =
+                ConfigurationManager.getPackagesForUid(uid).joinToString().ifEmpty { "<unresolved>" }
+            val header = "${clock.format(Date())} === session uid=$uid packages=[$packages] ===\n"
+            out.write(header)
+            out.flush()
+            size += header.length
+            return out
+        }
+
+        private fun rotate() {
+            runCatching {
+                writer?.flush()
+                writer?.close()
+            }
+            writer = null
+            runCatching {
+                if (rotated.exists()) rotated.delete()
+                primary.renameTo(rotated)
+            }
+            size = 0L
+        }
     }
 }

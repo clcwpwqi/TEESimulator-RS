@@ -43,6 +43,7 @@ object AndroidDeviceUtils {
                 DeviceAttestationService.CachedAttestationData?.verifiedBootKey
             },
             expectedSize = 32,
+            recordSource = { bootKeySource = it },
         )
     }
 
@@ -60,8 +61,15 @@ object AndroidDeviceUtils {
                 DeviceAttestationService.CachedAttestationData?.verifiedBootHash
             },
             expectedSize = 32,
+            recordSource = { bootHashSource = it },
         )
     }
+
+    // Records which fallback tier supplied bootKey/bootHash so the diagnostic dossier can flag a
+    // random-fallback value — a real verifiedBootKey that resolves to random bytes is a textbook
+    // simulated-TEE tell. Populated by initializeBootProperty on first access.
+    @Volatile private var bootKeySource: String = "uninitialized"
+    @Volatile private var bootHashSource: String = "uninitialized"
 
     /**
      * Public function to explicitly trigger the initialization of the boot key and hash. Accessing
@@ -89,9 +97,11 @@ object AndroidDeviceUtils {
         propertyName: String,
         attestationValueProvider: () -> ByteArray?,
         expectedSize: Int,
+        recordSource: (String) -> Unit,
     ): ByteArray {
         getProperty(propertyName, expectedSize)?.let {
             SystemLogger.debug("Using $propertyName from system property: ${it.toHex()}")
+            recordSource("system-prop")
             persistToFile(propertyName, it)
             return it
         }
@@ -99,6 +109,7 @@ object AndroidDeviceUtils {
         try {
             attestationValueProvider()?.let {
                 SystemLogger.debug("Using $propertyName from TEE attestation: ${it.toHex()}")
+                recordSource("tee-attestation")
                 setProperty(propertyName, it)
                 persistToFile(propertyName, it)
                 return it
@@ -109,12 +120,14 @@ object AndroidDeviceUtils {
 
         readFromFile(propertyName, expectedSize)?.let {
             SystemLogger.debug("Using $propertyName from persistent file: ${it.toHex()}")
+            recordSource("persistent-file")
             setProperty(propertyName, it)
             return it
         }
 
         return generateRandomBytes(expectedSize).also {
             SystemLogger.debug("Using randomly generated $propertyName: ${it.toHex()}")
+            recordSource("random-fallback")
             setProperty(propertyName, it)
             persistToFile(propertyName, it)
         }
@@ -228,6 +241,23 @@ object AndroidDeviceUtils {
     fun getBootPatchLevelLong(uid: Int): Int {
         val custom = getCustomPatchLevelFor(uid, "boot", isLong = true)
         return custom ?: getRealDevicePatchLevelInt("boot", isLong = true)
+    }
+
+    /**
+     * Summarises, for a targeted [uid], the device values that feed attestation and where each came
+     * from. This is what exposes attested-versus-live mismatches: a random-fallback verifiedBootKey,
+     * a patch level overridden away from the live prop, or an OS version pulled from a stale cache.
+     */
+    fun describeSources(uid: Int): String {
+        val customPatchLevel = ConfigurationManager.getPatchLevelForUid(uid) != null
+        val osVersionSource =
+            if (DeviceAttestationService.CachedAttestationData?.osVersion != null) "cache" else "map"
+        return "osVersion=$osVersion(src=$osVersionSource) " +
+            "osPatch=${getPatchLevel(uid)} vendorPatch=${getVendorPatchLevelLong(uid)} " +
+            "bootPatch=${getBootPatchLevelLong(uid)} customPatchLevel=$customPatchLevel " +
+            "bootKey=${bootKey.toHex()}(src=$bootKeySource) " +
+            "bootHash=${bootHash.toHex()}(src=$bootHashSource) " +
+            "teeCacheData=${DeviceAttestationService.CachedAttestationData != null}"
     }
 
     /**

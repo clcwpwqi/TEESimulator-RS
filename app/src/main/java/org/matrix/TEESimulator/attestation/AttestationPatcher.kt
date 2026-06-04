@@ -234,6 +234,103 @@ object AttestationPatcher {
         }
     }
 
+    /** Reverse map of attestation tag number to its symbolic name, e.g. 704 -> "ROOT_OF_TRUST". */
+    private val attestTagNames: Map<Int, String> by lazy {
+        AttestationConstants::class
+            .java
+            .fields
+            .filter { it.name.startsWith("TAG_") && it.type == Int::class.java }
+            .associate { (it.get(null) as Int) to it.name.removePrefix("TAG_") }
+    }
+
+    /**
+     * Renders the full key-attestation extension of [cert] as a single structured line for the
+     * diagnostic dossier, or null when the certificate carries no attestation extension. This is the
+     * ground-truth view of what we actually emitted, so any divergence from a genuine TEE surfaces
+     * directly as a differing field rather than having to be guessed.
+     */
+    fun formatAttestationExtension(cert: X509Certificate): String? {
+        val rawExtension = cert.getExtensionValue(ATTESTATION_OID.id) ?: return null
+        return runCatching {
+                val keyDescriptionDer = ASN1OctetString.getInstance(rawExtension).octets
+                formatKeyDescription(ASN1Sequence.getInstance(keyDescriptionDer))
+            }
+            .getOrElse { "<unparseable attestation extension: ${it.message}>" }
+    }
+
+    /** Renders the identity fields of every certificate in a returned chain for the dossier. */
+    fun formatCertChain(chain: List<Certificate>): String =
+        chain
+            .mapIndexed { index, cert ->
+                val x509 = cert as? X509Certificate ?: return@mapIndexed "[$index] <non-X509>"
+                "[$index] subject=${x509.subjectX500Principal.name} " +
+                    "issuer=${x509.issuerX500Principal.name} " +
+                    "serial=${x509.serialNumber.toString(16)} " +
+                    "notBefore=${x509.notBefore} notAfter=${x509.notAfter}"
+            }
+            .joinToString(separator = " ; ")
+
+    private fun formatKeyDescription(seq: ASN1Sequence): String {
+        val fields = seq.toArray()
+        return "attestVer=${formatAsn1Primitive(fields[AttestationConstants.KEY_DESCRIPTION_ATTESTATION_VERSION_INDEX])} " +
+            "attestSecLvl=${formatSecurityLevel(fields[AttestationConstants.KEY_DESCRIPTION_ATTESTATION_SECURITY_LEVEL_INDEX])} " +
+            "kmVer=${formatAsn1Primitive(fields[AttestationConstants.KEY_DESCRIPTION_KEYMINT_VERSION_INDEX])} " +
+            "kmSecLvl=${formatSecurityLevel(fields[AttestationConstants.KEY_DESCRIPTION_KEYMINT_SECURITY_LEVEL_INDEX])} " +
+            "challenge=${formatAsn1Primitive(fields[AttestationConstants.KEY_DESCRIPTION_ATTESTATION_CHALLENGE_INDEX])} " +
+            "uniqueId=${formatAsn1Primitive(fields[AttestationConstants.KEY_DESCRIPTION_UNIQUE_ID_INDEX])} " +
+            "sw=${formatAuthorizationList(fields[AttestationConstants.KEY_DESCRIPTION_SOFTWARE_ENFORCED_INDEX])} " +
+            "tee=${formatAuthorizationList(fields[AttestationConstants.KEY_DESCRIPTION_TEE_ENFORCED_INDEX])}"
+    }
+
+    private fun formatSecurityLevel(obj: ASN1Encodable): String {
+        val level = (obj.toASN1Primitive() as? ASN1Enumerated)?.value?.toInt()
+        val name =
+            when (level) {
+                0 -> "Software"
+                1 -> "TEE"
+                2 -> "StrongBox"
+                else -> "?"
+            }
+        return "$level($name)"
+    }
+
+    private fun formatAuthorizationList(obj: ASN1Encodable): String {
+        val seq = obj.toASN1Primitive() as? ASN1Sequence ?: return formatAsn1Primitive(obj)
+        return seq
+            .map { element ->
+                val tagged = element as? ASN1TaggedObject ?: return@map formatAsn1Primitive(element)
+                val name = attestTagNames[tagged.tagNo] ?: "TAG"
+                val value =
+                    if (tagged.tagNo == AttestationConstants.TAG_ROOT_OF_TRUST)
+                        formatRootOfTrust(tagged.baseObject)
+                    else formatAsn1Primitive(tagged.baseObject)
+                "${tagged.tagNo}($name)=$value"
+            }
+            .joinToString(prefix = "[", postfix = "]", separator = ", ")
+    }
+
+    /**
+     * Decodes the Root of Trust sub-sequence explicitly — it is the field a detector most often uses
+     * to unmask a simulated TEE (a random verifiedBootKey, an unexpected verifiedBootState, or a
+     * deviceLocked that disagrees with the bootloader all live here).
+     */
+    private fun formatRootOfTrust(obj: ASN1Encodable): String {
+        val fields = (obj.toASN1Primitive() as? ASN1Sequence)?.toArray() ?: return formatAsn1Primitive(obj)
+        val state = fields.getOrNull(AttestationConstants.ROOT_OF_TRUST_VERIFIED_BOOT_STATE_INDEX)
+        val stateName =
+            when ((state?.toASN1Primitive() as? ASN1Enumerated)?.value?.toInt()) {
+                0 -> "Verified"
+                1 -> "SelfSigned"
+                2 -> "Unverified"
+                3 -> "Failed"
+                else -> "?"
+            }
+        return "[bootKey=${formatAsn1Primitive(fields.getOrNull(AttestationConstants.ROOT_OF_TRUST_VERIFIED_BOOT_KEY_INDEX))}, " +
+            "deviceLocked=${formatAsn1Primitive(fields.getOrNull(AttestationConstants.ROOT_OF_TRUST_DEVICE_LOCKED_INDEX))}, " +
+            "verifiedBootState=${formatAsn1Primitive(state)}($stateName), " +
+            "bootHash=${formatAsn1Primitive(fields.getOrNull(AttestationConstants.ROOT_OF_TRUST_VERIFIED_BOOT_HASH_INDEX))}]"
+    }
+
     // Function to check if a given ASN1Sequence contains the Root of Trust tag.
     private fun sequenceContainsRootOfTrust(seq: ASN1Encodable): Boolean {
         if (seq !is ASN1Sequence) return false

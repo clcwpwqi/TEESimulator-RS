@@ -224,7 +224,11 @@ abstract class BinderInterceptor : Binder() {
         }
     }
 
-    /** Helper function for consistent logging of intercepted transactions. */
+    /**
+     * Logs an intercepted transaction. For a targeted UID every transaction — whether we intercept
+     * or merely observe it — is recorded on that UID's own diagnostic plane, so its keystore
+     * timeline reads cleanly end to end. Untargeted UIDs get a single terse, rate-limited line.
+     */
     protected fun logTransaction(
         txId: Long,
         methodName: String,
@@ -232,15 +236,14 @@ abstract class BinderInterceptor : Binder() {
         callingPid: Int,
         skipPost: Boolean = false,
     ) {
-        val isIntercepting = !skipPost && !ConfigurationManager.shouldSkipUid(callingUid)
-        val action = if (isIntercepting) "Intercept" else "Observe"
-        val packages = ConfigurationManager.getPackagesForUid(callingUid).joinToString()
-        val message =
-            "[TX_ID: $txId] $action $methodName for packages=[$packages] (uid=$callingUid, pid=$callingPid)"
-        if (isIntercepting) {
-            SystemLogger.debug(message)
-        } else {
-            SystemLogger.verbose(message)
+        if (SystemLogger.isUidLogged(callingUid)) {
+            val action = if (skipPost) "observe" else "intercept"
+            SystemLogger.uidLog(callingUid, txId, "tx", "$methodName action=$action pid=$callingPid")
+            return
+        }
+        SystemLogger.verbose {
+            val packages = ConfigurationManager.getPackagesForUid(callingUid).joinToString()
+            "[TX_ID: $txId] Observe $methodName for packages=[$packages] (uid=$callingUid, pid=$callingPid)"
         }
     }
 
