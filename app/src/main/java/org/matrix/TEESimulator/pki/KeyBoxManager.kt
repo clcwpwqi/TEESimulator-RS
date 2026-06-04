@@ -72,6 +72,23 @@ object KeyBoxManager {
     }
 
     /**
+     * Retrieves any usable attestation key from a key store file, preferring EC.
+     *
+     * EC is the modern device-attestation key type and validly signs a leaf carrying either an EC
+     * or an RSA subject key. This is the fail-safe used when no algorithm-matching key exists, so
+     * patching can still re-root the chain under the keybox instead of leaking the device's real
+     * attestation.
+     *
+     * @param keyStoreFileName The name of the XML file (e.g., "keybox.xml").
+     * @return The preferred [KeyBox], or `null` if the file contains no usable key.
+     */
+    fun getAnyAttestationKey(keyStoreFileName: String): KeyBox? {
+        val keyMap =
+            keyStoreCache.getOrPut(keyStoreFileName) { parseKeyStoreFile(keyStoreFileName) }
+        return keyMap[KeyProperties.KEY_ALGORITHM_EC] ?: keyMap.values.firstOrNull()
+    }
+
+    /**
      * Removes the cached data for a specific key store file.
      *
      * Calling this will force the file to be re-read and re-parsed from disk the next time
