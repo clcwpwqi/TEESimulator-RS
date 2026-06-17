@@ -30,6 +30,7 @@ object AttestationDossier {
         SystemLogger.uidLog(uid, txId, "attest", "path=$path depth=${chain.size} $extension")
         SystemLogger.uidLog(uid, txId, "keybox", "file=${ConfigurationManager.getKeyboxFileForUid(uid)}")
         SystemLogger.uidLog(uid, txId, "chain", AttestationPatcher.formatCertChain(chain))
+        SystemLogger.uidLog(uid, txId, "chain-verify", AttestationPatcher.formatChainVerification(chain))
         SystemLogger.uidLog(uid, txId, "props", AndroidDeviceUtils.describeSources(uid))
     }
 

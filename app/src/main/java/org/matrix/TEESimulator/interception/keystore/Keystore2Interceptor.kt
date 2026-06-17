@@ -314,6 +314,7 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                         SystemLogger.info(
                             "[TX_ID: $txId] Found generated response via KEY_ID nspace=${descriptor.nspace}"
                         )
+                        logServedChain(callingUid, txId, "keyid:${descriptor.nspace}", info.response)
                         return InterceptorUtils.createTypedObjectReply(info.response)
                     }
                     val teeResp =
@@ -325,6 +326,7 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                         SystemLogger.info(
                             "[TX_ID: $txId] Found TEE response via KEY_ID nspace=${descriptor.nspace}"
                         )
+                        logServedChain(callingUid, txId, "keyid:${descriptor.nspace}", teeResp)
                         return InterceptorUtils.createTypedObjectReply(teeResp)
                     }
                 }
@@ -357,6 +359,7 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
             response.metadata?.authorizations?.forEach {
                 KeyMintParameterLogger.logParameter(callingUid, txId, it.keyParameter)
             }
+            logServedChain(callingUid, txId, descriptor.alias, response)
             return InterceptorUtils.createTypedObjectReply(response)
         } else if (code == GRANT_TRANSACTION) {
             logTransaction(txId, transactionNames[code] ?: "grant", callingUid, callingPid)
@@ -699,6 +702,20 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                     }
             else -> null
         }
+
+    /**
+     * Records the certificate chain actually served back to [uid] on a getKeyEntry, keyed by
+     * [alias]. The app reassembles its final chain from these served chains (the leaf alias plus
+     * the attest-key alias), so logging each one with key sizes and a per-edge verification makes a
+     * verification failure in the app's combined chain reproducible from the log, not inferred.
+     */
+    private fun logServedChain(uid: Int, txId: Long, alias: String, response: KeyEntryResponse?) {
+        if (response == null || !SystemLogger.isUidLogged(uid)) return
+        val chain = CertificateHelper.getCertificateChain(response)?.asList() ?: return
+        SystemLogger.uidLog(uid, txId, "served", "alias=$alias depth=${chain.size}")
+        SystemLogger.uidLog(uid, txId, "served-keys", AttestationPatcher.formatChainKeys(chain))
+        SystemLogger.uidLog(uid, txId, "served-verify", AttestationPatcher.formatChainVerification(chain))
+    }
 
     private fun handleUpdateSubcomponent(callingUid: Int, data: Parcel): TransactionResult {
         data.enforceInterface(IKeystoreService.DESCRIPTOR)

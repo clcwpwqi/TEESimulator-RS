@@ -3,10 +3,13 @@ package org.matrix.TEESimulator.attestation
 import android.security.keystore.KeyProperties
 import java.nio.charset.StandardCharsets
 import java.security.PrivateKey
+import java.security.PublicKey
 import java.security.cert.Certificate
 import java.security.cert.X509Certificate
 import java.security.interfaces.ECPrivateKey
+import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPrivateKey
+import java.security.interfaces.RSAPublicKey
 import java.util.Date
 import org.bouncycastle.asn1.*
 import org.bouncycastle.asn1.x509.Extension
@@ -285,6 +288,60 @@ object AttestationPatcher {
                     "notBefore=${x509.notBefore} notAfter=${x509.notAfter}"
             }
             .joinToString(separator = " ; ")
+
+    /**
+     * Verifies every certificate in [chain] against its issuer and renders the outcome for the
+     * dossier. The forged chain is [leaf] + keybox certs, so edge 0<-1 proves the leaf was signed by
+     * the key matching the issuer cert and later edges test the keybox's own chain. For an RSA issuer
+     * it also reports signature-bytes vs modulus-bytes: a signature longer than the modulus is the
+     * exact DATA_TOO_LARGE_FOR_KEY_SIZE the app's verifier throws, so the offending edge is
+     * identifiable from the log alone.
+     */
+    fun formatChainVerification(chain: List<Certificate>): String {
+        if (chain.size < 2) return "<single cert; nothing to chain-verify>"
+        return (0 until chain.size - 1).joinToString(separator = " ; ") { i ->
+            val child = chain[i] as? X509Certificate ?: return@joinToString "[$i]<non-X509>"
+            val parent =
+                chain[i + 1] as? X509Certificate ?: return@joinToString "[$i]<parent non-X509>"
+            val outcome =
+                runCatching {
+                        child.verify(parent.publicKey)
+                        "OK"
+                    }
+                    .getOrElse { "FAIL(${it.javaClass.simpleName}: ${it.message?.take(80)})" }
+            val rsaSizes =
+                (parent.publicKey as? RSAPublicKey)?.let {
+                    val sigBytes = child.signature.size
+                    val modBytes = (it.modulus.bitLength() + 7) / 8
+                    " sig=${sigBytes}B mod=${modBytes}B" + if (sigBytes > modBytes) " OVERSIZE" else ""
+                } ?: ""
+            "[$i]${describeKey(child.publicKey)}<-[${i + 1}]${describeKey(parent.publicKey)}:" +
+                "$outcome$rsaSizes"
+        }
+    }
+
+    /**
+     * Per-cert key type/size, subject, issuer, and signature length, for reconstructing the chain a
+     * caller verifies. The signature length reveals the signer's key size, so a 4096-bit signature
+     * landing on a 2048-bit issuer (DATA_TOO_LARGE) is visible without the certificate bytes.
+     */
+    fun formatChainKeys(chain: List<Certificate>): String =
+        chain
+            .mapIndexed { index, cert ->
+                val x509 = cert as? X509Certificate ?: return@mapIndexed "[$index]<non-X509>"
+                "[$index]${describeKey(x509.publicKey)} " +
+                    "subj=${x509.subjectX500Principal.name} " +
+                    "iss=${x509.issuerX500Principal.name} " +
+                    "sigLen=${x509.signature.size}B"
+            }
+            .joinToString(separator = " ; ")
+
+    private fun describeKey(key: PublicKey): String =
+        when (key) {
+            is RSAPublicKey -> "RSA${key.modulus.bitLength()}"
+            is ECPublicKey -> "EC${key.params.curve.field.fieldSize}"
+            else -> key.algorithm
+        }
 
     private fun formatKeyDescription(seq: ASN1Sequence): String {
         val fields = seq.toArray()
