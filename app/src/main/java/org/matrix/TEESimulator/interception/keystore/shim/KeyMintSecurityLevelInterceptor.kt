@@ -547,8 +547,35 @@ class KeyMintSecurityLevelInterceptor(
                 SystemLogger.debug(
                     "Handling generateKey ${keyDescriptor.alias}, attestKey=${attestationKey?.alias}"
                 )
-                var params = data.createTypedArray(KeyParameter.CREATOR)!!
-                var parsedParams = KeyMintAttestation(params)
+                // INCLUDE_UNIQUE_ID requires SELinux gen_unique_id OR
+                // REQUEST_UNIQUE_ID_ATTESTATION (AOSP security_level.rs:478-485). AOSP
+                // rejects with PERMISSION_DENIED when neither is held, but that breaks
+                // Google Wallet card binding and regresses Play Integrity: Wallet's
+                // generateKey carries the tag without the permission. Strip it at parse
+                // so the key generates and the attestation omits unique_id (pre-PR157
+                // behavior). Deciding here keeps params/parsedParams val and derives
+                // isAttestKeyRequest from the effective parameters.
+                val params =
+                    data.createTypedArray(KeyParameter.CREATOR)!!.let { raw ->
+                        val stripUniqueId =
+                            raw.any { it.tag == Tag.INCLUDE_UNIQUE_ID } &&
+                                !ConfigurationManager.checkSELinuxPermission(
+                                    callingPid,
+                                    "keystore_key",
+                                    "gen_unique_id",
+                                ) &&
+                                !ConfigurationManager.hasPermissionForUid(
+                                    callingUid,
+                                    "android.permission.REQUEST_UNIQUE_ID_ATTESTATION",
+                                )
+                        if (stripUniqueId) {
+                            SystemLogger.debug(
+                                "[TX_ID: $txId] Stripping INCLUDE_UNIQUE_ID for uid=$callingUid pid=$callingPid (no permission)"
+                            )
+                            raw.filter { it.tag != Tag.INCLUDE_UNIQUE_ID }.toTypedArray()
+                        } else raw
+                    }
+                val parsedParams = KeyMintAttestation(params)
                 val isAttestKeyRequest = parsedParams.isAttestKey()
 
                 val hasDeviceIdAttestation =
@@ -660,37 +687,6 @@ class KeyMintSecurityLevelInterceptor(
                     )
                     logProbe("REJECT:cannot_attest_ids")
                     return InterceptorUtils.createErrorReply(KEYMINT_CANNOT_ATTEST_IDS)
-                }
-
-                // INCLUDE_UNIQUE_ID requires SELinux gen_unique_id OR
-                // android.permission.REQUEST_UNIQUE_ID_ATTESTATION (AOSP
-                // security_level.rs:478-485). AOSP returns PERMISSION_DENIED
-                // when neither is held — but doing so breaks Google Wallet
-                // card binding (Wallet's generateKey carries the tag without
-                // holding the permission, and Play Integrity also fails when
-                // unique_id ends up in the attestation). Silently strip the
-                // tag so the key generates normally and the resulting
-                // attestation simply omits the unique_id field. This mirrors
-                // the pre-PR157 behavior where the tag had no effect.
-                if (params.any { it.tag == Tag.INCLUDE_UNIQUE_ID }) {
-                    val hasSELinux =
-                        ConfigurationManager.checkSELinuxPermission(
-                            callingPid,
-                            "keystore_key",
-                            "gen_unique_id",
-                        )
-                    val hasAndroid =
-                        ConfigurationManager.hasPermissionForUid(
-                            callingUid,
-                            "android.permission.REQUEST_UNIQUE_ID_ATTESTATION",
-                        )
-                    if (!hasSELinux && !hasAndroid) {
-                        SystemLogger.debug(
-                            "[TX_ID: $txId] Stripping INCLUDE_UNIQUE_ID for uid=$callingUid pid=$callingPid (no permission)"
-                        )
-                        params = params.filter { it.tag != Tag.INCLUDE_UNIQUE_ID }.toTypedArray()
-                        parsedParams = KeyMintAttestation(params)
-                    }
                 }
 
                 val isSymmetric =
