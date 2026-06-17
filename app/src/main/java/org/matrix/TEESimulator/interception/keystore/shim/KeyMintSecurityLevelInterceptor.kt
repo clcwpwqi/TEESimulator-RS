@@ -1222,6 +1222,15 @@ class KeyMintSecurityLevelInterceptor(
                     require(certChain.isNotEmpty()) { "Persisted key has empty certificate chain" }
 
                     val publicKey = certChain[0].publicKey
+                    // The private key ($algorithmName) signs leaves that callers verify against this
+                    // served chain's leaf public key. If the two disagree (EC private under an RSA
+                    // served leaf) every signature this key makes fails as DATA_TOO_LARGE_FOR_MODULUS
+                    // -- the A16 EC two-root. A split record is corrupt: drop it so the next
+                    // generateKey rebirths a coherent one rather than serve a key that cannot sign.
+                    require(publicKey.algorithm == algorithmName) {
+                        "Persisted key ${record.alias} splits private=$algorithmName " +
+                            "vs served leaf=${publicKey.algorithm}; dropping"
+                    }
                     val keyPair = KeyPair(publicKey, privateKey)
 
                     val descriptor =
