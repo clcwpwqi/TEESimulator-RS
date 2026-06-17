@@ -704,6 +704,12 @@ class KeyMintSecurityLevelInterceptor(
 
                 val keyId = KeyIdentifier(callingUid, keyDescriptor.alias)
 
+                // keystore2 generateKey replaces an existing alias; drop any cached chain from a
+                // prior generation on it so a later getKeyEntry serves THIS key, never a stale
+                // FORGE (an attest-key-mode leaf cached, then re-generated without an attest key,
+                // otherwise resurfaces and breaks the app's reassembled chain).
+                if (generatedKeys.containsKey(keyId)) cleanupKeyData(keyId)
+
                 // Device-ID attestation must be forged, not patched: the real TEE returns
                 // CANNOT_ATTEST_IDS, so there is no real chain to patch — only a synthetic one
                 // carrying the requested IDs and rooted under the keybox will satisfy the caller.
