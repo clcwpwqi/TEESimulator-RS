@@ -29,7 +29,7 @@ import org.matrix.TEESimulator.logging.SystemLogger
  * device-identity fields the probe reads, so a forged software operation answers exactly as that
  * vendor's real TEE would.
  */
-private object VendorQuirks {
+internal object VendorQuirks {
     private val UPDATE_AAD_ALLOWS_SUCCESS = setOf("samsung")
     private val XIAOMI_BRANDS = setOf("xiaomi", "redmi", "poco")
 
