@@ -28,6 +28,7 @@ import java.util.concurrent.locks.LockSupport
 import org.matrix.TEESimulator.attestation.AttestationBuilder
 import org.matrix.TEESimulator.attestation.AttestationConstants
 import org.matrix.TEESimulator.attestation.AttestationPatcher
+import org.matrix.TEESimulator.attestation.DeviceAttestationService
 import org.matrix.TEESimulator.attestation.KeyMintAttestation
 import org.matrix.TEESimulator.config.ConfigurationManager
 import org.matrix.TEESimulator.interception.core.BinderInterceptor
@@ -713,8 +714,9 @@ class KeyMintSecurityLevelInterceptor(
                 // Device-ID attestation must be forged, not patched: the real TEE returns
                 // CANNOT_ATTEST_IDS, so there is no real chain to patch — only a synthetic one
                 // carrying the requested IDs and rooted under the keybox will satisfy the caller.
-                // AUTO attestation forges from the keybox instead of trusting the EC-only TEE
-                // probe, which cannot tell whether the device can attest RSA / device-ID / StrongBox.
+                // AUTO forges RSA attestation only when the real TEE cannot provision an RSA
+                // attestation key (isRsaAttestable). EC and RSA-capable devices keep their genuine
+                // TEE chain via PATCH, which strict callers accept where a forgery is rejected.
                 val forceGenerate =
                     oversized ||
                         ConfigurationManager.shouldGenerate(callingUid) ||
@@ -722,7 +724,9 @@ class KeyMintSecurityLevelInterceptor(
                         attestationKey != null ||
                         hasDeviceIdAttestation ||
                         (ConfigurationManager.isAutoMode(callingUid) &&
-                            parsedParams.attestationChallenge != null)
+                            parsedParams.attestationChallenge != null &&
+                            parsedParams.algorithm == Algorithm.RSA &&
+                            !DeviceAttestationService.isRsaAttestable)
 
                 SystemLogger.trace {
                     "[TRACE-$txId] dispatch: forceGen=$forceGenerate hasChallenge=${challenge != null} isSymmetric=$isSymmetric isAttestKey=$isAttestKeyRequest"

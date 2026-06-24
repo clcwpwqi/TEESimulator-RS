@@ -8,6 +8,7 @@ import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.RSAKeyGenParameterSpec
 import org.bouncycastle.asn1.ASN1Integer
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.ASN1OctetString
@@ -60,12 +61,20 @@ object DeviceAttestationService {
 
     // A unique alias for the key used to perform the TEE functionality check.
     private const val TEE_CHECK_KEY_ALIAS = "TEESimulator_AttestationCheck"
+    private const val RSA_ATTEST_CHECK_KEY_ALIAS = "TEESimulator_RsaAttestCheck"
 
     /**
      * Lazily determines if the device's TEE is functional by attempting to generate an
      * attestation-backed key pair. The result is cached.
      */
     val isTeeFunctional: Boolean by lazy { checkTeeFunctionality() }
+
+    /**
+     * Lazily determines whether the real TEE can attest an RSA key. A device may mint EC keys yet
+     * lack a provisioned RSA attestation key, so [isTeeFunctional] alone over-reports capability.
+     * AUTO dispatch reads this to forge RSA attestation only where the hardware genuinely cannot.
+     */
+    val isRsaAttestable: Boolean by lazy { checkRsaAttestability() }
 
     /**
      * Lazily fetches and parses attestation data from a genuinely generated certificate. The result
@@ -103,6 +112,40 @@ object DeviceAttestationService {
             true
         } catch (e: Exception) {
             SystemLogger.warning("TEE functionality check failed.", e)
+            false
+        }
+    }
+
+    /**
+     * Checks whether the real TEE can attest an RSA key by generating one with an attestation
+     * challenge. Mirrors [checkTeeFunctionality]; the request runs as the module UID, so it is
+     * skipped by interception and reaches genuine hardware rather than the forge path.
+     *
+     * @return `true` if an RSA key with attestation was generated successfully, `false` otherwise.
+     */
+    private fun checkRsaAttestability(): Boolean {
+        SystemLogger.info("Performing RSA attestation capability check...")
+        return try {
+            val keyPairGenerator =
+                KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore")
+
+            val challenge = ByteArray(16).apply { SecureRandom().nextBytes(this) }
+
+            val spec =
+                KeyGenParameterSpec.Builder(RSA_ATTEST_CHECK_KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
+                    .setAlgorithmParameterSpec(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
+                    .setDigests(KeyProperties.DIGEST_SHA256)
+                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                    .setAttestationChallenge(challenge)
+                    .build()
+
+            keyPairGenerator.initialize(spec)
+            keyPairGenerator.generateKeyPair()
+
+            SystemLogger.info("RSA attestation capability check successful.")
+            true
+        } catch (e: Exception) {
+            SystemLogger.warning("RSA attestation capability check failed.", e)
             false
         }
     }
