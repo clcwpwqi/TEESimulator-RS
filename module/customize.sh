@@ -76,6 +76,16 @@ mv "$MODPATH/libsupervisor.so" "$MODPATH/supervisor"
 chmod 755 "$MODPATH/inject"
 chmod 755 "$MODPATH/supervisor"
 
+# Debug builds carry diag.sh (the diagnostic plane); release builds do not. Extract it when
+# present; otherwise sweep any external-storage diagnostics a prior debug install left behind,
+# since the release keystore domain has no grant to remove them itself.
+if unzip -qqjo "$ZIPFILE" "diag.sh" -d "$MODPATH" 2>/dev/null; then
+  chmod 644 "$MODPATH/diag.sh"
+  ui_print "- Debug diagnostic plane enabled"
+else
+  rm -rf /data/media/0/TEESimulator /data/local/tmp/teesim
+fi
+
 # --- Configuration Files ---
 if [ ! -d "$CONFIG_DIR" ]; then
   ui_print "- Creating configuration directory"

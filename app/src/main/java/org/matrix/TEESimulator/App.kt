@@ -6,13 +6,11 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
 import android.os.Looper
-import java.io.File
 import java.security.Security
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.matrix.TEESimulator.config.BootStateManager
 import org.matrix.TEESimulator.config.ConfigurationManager
 import org.matrix.TEESimulator.interception.keystore.AbstractKeystoreInterceptor
-import org.matrix.TEESimulator.interception.keystore.InterceptorUtils
 import org.matrix.TEESimulator.interception.keystore.Keystore2Interceptor
 import org.matrix.TEESimulator.interception.keystore.KeystoreInterceptor
 import org.matrix.TEESimulator.logging.SystemLogger
@@ -41,7 +39,6 @@ object App {
         }
 
         try {
-            purgeDebugDiagnostics()
             prepareEnvironment()
 
             // Spoof boot-state props before any hook attaches, so keystore2's
@@ -72,41 +69,6 @@ object App {
             SystemLogger.error("A fatal error occurred in the main application thread.", e)
             throw e
         }
-    }
-
-    /**
-     * Release builds never emit diagnostics. Sweep anything a prior debug install left behind so it
-     * cannot act as a detection artifact: the `.bin` dumps in the world-readable temp dir, and the
-     * per-UID diagnostic logs under the config dir.
-     */
-    private fun purgeDebugDiagnostics() {
-        if (SystemLogger.isDebugBuild) return
-        // .bin dumps and per-UID logs now share the diagnostic dir.
-        purgeStale(File(InterceptorUtils.DIAGNOSTIC_DIR), InterceptorUtils.DIAGNOSTIC_DIR) { name ->
-            name.startsWith("teesim-") &&
-                (name.endsWith(".bin") || name.endsWith(".log") || name.endsWith(".log.1"))
-        }
-        // Older debug installs wrote dumps loose in /data/local/tmp and per-UID logs under the
-        // module config dir; sweep both legacy locations so upgrading to a release build leaves
-        // nothing behind.
-        purgeStale(File("/data/local/tmp"), "/data/local/tmp") { name ->
-            name.startsWith("teesim-") && name.endsWith(".bin")
-        }
-        purgeStale(File("${ConfigurationManager.CONFIG_PATH}/logs"), "legacy per-UID log dir") { name ->
-            name.startsWith("teesim-uid-") && (name.endsWith(".log") || name.endsWith(".log.1"))
-        }
-    }
-
-    /**
-     * Deletes matching files in [dir], logging a single once-per-boot audit line if any existed.
-     */
-    private fun purgeStale(dir: File, label: String, matches: (String) -> Boolean) {
-        val stale = dir.listFiles { _, name -> matches(name) } ?: return
-        if (stale.isEmpty()) return
-        stale.forEach { runCatching { it.delete() } }
-        // warning() bypasses the rate limiter, so this once-per-boot audit line survives the noisy
-        // startup window.
-        SystemLogger.warning("Purged ${stale.size} stale debug diagnostic(s) from $label")
     }
 
     /** Initializes the necessary Android framework internals to satisfy KeyStore requirements. */

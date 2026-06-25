@@ -158,7 +158,7 @@ deploy_zip() {
 
     if [[ "$CLEAR_LOGS" == true ]]; then
         bold "==> Clearing per-UID diagnostic logs"
-        adb shell "rm -f /data/local/tmp/teesim/teesim-uid-*" 2>/dev/null || true
+        adb shell "rm -rf /data/media/0/TEESimulator /data/local/tmp/teesim" 2>/dev/null || true
     fi
 
     bold "==> Deploying $name"

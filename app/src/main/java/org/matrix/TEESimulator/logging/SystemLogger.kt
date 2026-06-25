@@ -1,15 +1,17 @@
 package org.matrix.TEESimulator.logging
 
+import android.util.Base64
 import android.util.Log
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONObject
 import org.matrix.TEESimulator.BuildConfig
 import org.matrix.TEESimulator.config.ConfigurationManager
 
@@ -141,18 +143,17 @@ object SystemLogger {
         ConfigurationManager.getPackagesForUid(uid).firstOrNull() ?: "uid:$uid"
 
     /**
-     * Emits one structured diagnostic record for a targeted [uid] as `[<pkg> tx=<txId>] <event>:
-     * <detail>`. The record is mirrored to logcat and appended to that UID's own file. In-scope
-     * records bypass the global rate limiter — a targeted app's traffic is already volume-bounded,
-     * and dropping a line mid-probe would corrupt the very trace we are trying to read. No-op for
-     * untargeted UIDs and in release builds.
+     * Emits one structured diagnostic record for a targeted [uid]. The human form
+     * `[<pkg> tx=<txId>] <event>: <detail>` goes to logcat; the file sink receives one NDJSON object
+     * per line under that UID's own file. In-scope records bypass the global rate limiter: a
+     * targeted app's traffic is already volume-bounded, and dropping a line mid-probe would corrupt
+     * the very trace we are trying to read. No-op for untargeted UIDs and in release builds.
      */
     fun uidLog(uid: Int, txId: Long?, event: String, detail: String) {
         if (!isUidLogged(uid)) return
         val correlation = txId?.let { " tx=$it" } ?: ""
-        val line = "[${label(uid)}$correlation] $event: $detail"
-        Log.d(TAG, line)
-        runCatching { uidWriter(uid).append(line) }
+        Log.d(TAG, "[${label(uid)}$correlation] $event: $detail")
+        runCatching { uidWriter(uid).append(jsonRecord(uid, txId, event, detail, null)) }
     }
 
     /** Lazy [uidLog]: [detail] is only built for targeted UIDs in debug builds. */
@@ -161,35 +162,88 @@ object SystemLogger {
         uidLog(uid, txId, event, detail())
     }
 
-    // Co-located with the .bin dumps in InterceptorUtils.DIAGNOSTIC_DIR so every debug artifact sits
-    // in one adb-pullable dir; release builds purge it (see App.purgeDebugDiagnostics).
-    private val uidLogDir = File("/data/local/tmp/teesim")
+    /**
+     * [uidLog] plus the exact wire bytes that produced the event, base64 (NO_WRAP) in a `raw_b64`
+     * field. This is the structured replacement for the per-call `.bin` parcel dumps: one NDJSON
+     * line on the per-UID file instead of a fresh undecodable file per transaction, with the raw
+     * parcel still recoverable for offline parsers.
+     */
+    fun uidLogRaw(uid: Int, txId: Long?, event: String, detail: String, raw: ByteArray) {
+        if (!isUidLogged(uid)) return
+        val correlation = txId?.let { " tx=$it" } ?: ""
+        Log.d(TAG, "[${label(uid)}$correlation] $event: $detail (raw ${raw.size}B)")
+        runCatching {
+            val encoded = Base64.encodeToString(raw, Base64.NO_WRAP)
+            uidWriter(uid).append(jsonRecord(uid, txId, event, detail, encoded))
+        }
+    }
+
+    /**
+     * External-storage root for every debug diagnostic. `/data/media/0/TEESimulator` is the
+     * in-namespace backing path the keystore domain can reach; a normal file manager sees the same
+     * files at `/sdcard/TEESimulator`. Release builds never write here and purge it on boot
+     * (App.purgeDebugDiagnostics). The domain reaches it via a debug-only media_rw_data_file
+     * sepolicy grant, and service.sh pre-creates the directory.
+     */
+    const val DIAGNOSTIC_DIR = "/data/media/0/TEESimulator"
+
+    private val uidLogDir = File(DIAGNOSTIC_DIR)
     private const val UID_LOG_MAX_BYTES = 4L * 1024 * 1024
     private val uidWriters = ConcurrentHashMap<Int, UidLogFile>()
 
-    private fun uidWriter(uid: Int): UidLogFile = uidWriters.getOrPut(uid) { UidLogFile(uid, uidLogDir) }
+    private val recordClock =
+        DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
+
+    private fun jsonRecord(
+        uid: Int,
+        txId: Long?,
+        event: String,
+        detail: String,
+        rawB64: String?,
+    ): String =
+        JSONObject()
+            .apply {
+                put("ts", recordClock.format(Instant.now()))
+                put("uid", uid)
+                put("pkg", label(uid))
+                txId?.let { put("tx", it) }
+                put("event", event)
+                put("detail", detail)
+                rawB64?.let { put("raw_b64", it) }
+            }
+            .toString()
+
+    private fun uidWriter(uid: Int): UidLogFile =
+        uidWriters.computeIfAbsent(uid) { key ->
+            UidLogFile(key, uidLogDir).also { file ->
+                val packages =
+                    ConfigurationManager.getPackagesForUid(key).joinToString().ifEmpty { "<unresolved>" }
+                runCatching {
+                    file.append(jsonRecord(key, null, "session", "packages=[$packages]", null))
+                }
+            }
+        }
 
     /**
-     * An append-only diagnostic file for a single UID at `<logDir>/teesim-uid-<uid>.log`, rotated
-     * once to `.log.1` at [UID_LOG_MAX_BYTES]. Writes are synchronised because the keystore binder
-     * pool is multi-threaded, and every operation is wrapped so a logging fault can never propagate
-     * into the daemon. Created only on the debug-gated path, so release builds never touch this dir.
+     * Append-only NDJSON sink for a single UID at `<logDir>/teesim-uid-<uid>.ndjson`, rotated once
+     * to `.ndjson.1` at [UID_LOG_MAX_BYTES]; one JSON object per line. Writes are synchronised
+     * because the keystore binder pool is multi-threaded, and every operation is wrapped so a
+     * logging fault can never propagate into the daemon. Created only on the debug-gated path.
      */
-    private class UidLogFile(private val uid: Int, private val logDir: File) {
-        private val primary = File(logDir, "teesim-uid-$uid.log")
-        private val rotated = File(logDir, "teesim-uid-$uid.log.1")
-        private val clock = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    private class UidLogFile(uid: Int, private val logDir: File) {
+        private val primary = File(logDir, "teesim-uid-$uid.ndjson")
+        private val rotated = File(logDir, "teesim-uid-$uid.ndjson.1")
         private var writer: BufferedWriter? = null
         private var size = 0L
 
         @Synchronized
-        fun append(message: String) {
+        fun append(jsonLine: String) {
             runCatching {
                 val out = writer ?: open()
-                val line = "${clock.format(Date())} $message\n"
-                out.write(line)
+                out.write(jsonLine)
+                out.write("\n")
                 out.flush()
-                size += line.length
+                size += jsonLine.length + 1
                 if (size >= UID_LOG_MAX_BYTES) rotate()
             }
         }
@@ -199,12 +253,6 @@ object SystemLogger {
             val out = BufferedWriter(FileWriter(primary, /* append = */ true))
             writer = out
             size = primary.length()
-            val packages =
-                ConfigurationManager.getPackagesForUid(uid).joinToString().ifEmpty { "<unresolved>" }
-            val header = "${clock.format(Date())} === session uid=$uid packages=[$packages] ===\n"
-            out.write(header)
-            out.flush()
-            size += header.length
             return out
         }
 

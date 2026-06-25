@@ -19,13 +19,6 @@ data class KeyIdentifier(val uid: Int, val alias: String)
 /** A collection of utility functions to support binder interception. */
 object InterceptorUtils {
 
-    /**
-     * Dedicated subfolder for the debug-only diagnostic `.bin` dumps. Keeping them out of the
-     * world-readable `/data/local/tmp` root means they no longer litter a directory shared with
-     * every other tool, and the release purge can sweep the whole folder in one shot.
-     */
-    const val DIAGNOSTIC_DIR = "/data/local/tmp/teesim"
-
     private const val EX_SERVICE_SPECIFIC = -8
 
     private const val FLAT_STRIDE_HEADER = 12
@@ -127,24 +120,25 @@ object InterceptorUtils {
         return BinderInterceptor.TransactionResult.OverrideReply(parcel)
     }
 
+    /** Correlates a captured reply parcel to the app that triggered it, for [createTypedObjectReply]. */
+    data class ReplyDiagnostic(val uid: Int, val txId: Long?, val event: String)
+
     /** Creates an `OverrideReply` parcel containing a Parcelable object. */
     fun <T : Parcelable?> createTypedObjectReply(
         obj: T,
         flags: Int = 0,
-        diagnosticTag: String? = null,
+        diagnostic: ReplyDiagnostic? = null,
     ): BinderInterceptor.TransactionResult.OverrideReply {
         val parcel =
             Parcel.obtain().apply {
                 writeNoException()
                 writeTypedObject(obj, flags)
             }
-        if (diagnosticTag != null && SystemLogger.isDebugBuild) {
+        if (diagnostic != null && SystemLogger.isUidLogged(diagnostic.uid)) {
             val savedPos = parcel.dataPosition()
             val wire = parcel.marshall()
             parcel.setDataPosition(savedPos)
-            val path = "$DIAGNOSTIC_DIR/teesim-$diagnosticTag.bin"
-            runCatching { java.io.File(path).apply { parentFile?.mkdirs() }.writeBytes(wire) }
-            SystemLogger.debug("[$diagnosticTag] reply len=${wire.size} path=$path")
+            SystemLogger.uidLogRaw(diagnostic.uid, diagnostic.txId, diagnostic.event, "len=${wire.size}", wire)
         }
         return BinderInterceptor.TransactionResult.OverrideReply(parcel)
     }

@@ -527,16 +527,11 @@ class KeyMintSecurityLevelInterceptor(
         callingPid: Int,
         data: Parcel,
     ): TransactionResult {
-        if (SystemLogger.isDebugBuild) {
+        if (SystemLogger.isUidLogged(callingUid)) {
             val savedPos = data.dataPosition()
             val req = data.marshall()
             data.setDataPosition(savedPos)
-            val path =
-                "${InterceptorUtils.DIAGNOSTIC_DIR}/teesim-gen-mode-req-uid${callingUid}-tx${txId}-${System.nanoTime()}.bin"
-            runCatching { java.io.File(path).apply { parentFile?.mkdirs() }.writeBytes(req) }
-            SystemLogger.debug(
-                "[gen-mode-req] uid=$callingUid txId=$txId len=${req.size} path=$path"
-            )
+            SystemLogger.uidLogRaw(callingUid, txId, "genkey-request", "len=${req.size}", req)
         }
         val oversized = data.dataSize() > MAX_ALIAS_LENGTH
 
@@ -881,7 +876,7 @@ class KeyMintSecurityLevelInterceptor(
 
             return InterceptorUtils.createTypedObjectReply(
                 metadata,
-                diagnosticTag = "gen-mode-sym-uid$callingUid-tx$txId",
+                diagnostic = InterceptorUtils.ReplyDiagnostic(callingUid, txId, "genkey-reply-sym"),
             )
         }
 
@@ -996,7 +991,7 @@ class KeyMintSecurityLevelInterceptor(
 
         return InterceptorUtils.createTypedObjectReply(
             response.metadata,
-            diagnosticTag = "gen-mode-asym-uid$callingUid-tx$txId",
+            diagnostic = InterceptorUtils.ReplyDiagnostic(callingUid, txId, "genkey-reply-asym"),
         )
     }
 

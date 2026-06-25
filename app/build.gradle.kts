@@ -202,6 +202,7 @@ androidComponents {
                 val sourceModuleDir = rootProject.projectDir.resolve("module")
                 from(sourceModuleDir) {
                     exclude("module.prop") // Exclude the template file.
+                    exclude("diag.sh") // Debug-only diagnostic plane; included for debug below.
                 }
 
                 // Copy and filter the module.prop template separately.
@@ -214,8 +215,21 @@ androidComponents {
                     )
                 }
 
+                if (isDebug) {
+                    from(sourceModuleDir) { include("diag.sh") }
+                }
+
                 // The destination for all the above 'from' operations.
                 into(tempModuleDir)
+
+                if (isDebug) {
+                    doLast {
+                        // Debug-only: grant the keystore domain external-storage access; diag.sh
+                        // (shipped only in debug) carries the shell side of the diagnostic plane.
+                        tempModuleDir.get().asFile.resolve("sepolicy.rule")
+                            .appendText("\nallow keystore media_rw_data_file { dir file } *\n")
+                    }
+                }
             }
 
         // Task 2: Zip the prepared files from the temporary directory.
