@@ -10,6 +10,7 @@ import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.RSAKeyGenParameterSpec
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import org.bouncycastle.asn1.ASN1Integer
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
@@ -63,7 +64,6 @@ object DeviceAttestationService {
 
     // A unique alias for the key used to perform the TEE functionality check.
     private const val TEE_CHECK_KEY_ALIAS = "TEESimulator_AttestationCheck"
-    private const val RSA_ATTEST_CHECK_KEY_ALIAS = "TEESimulator_RsaAttestCheck"
 
     /**
      * Lazily determines if the device's TEE is functional by attempting to generate an
@@ -71,31 +71,57 @@ object DeviceAttestationService {
      */
     val isTeeFunctional: Boolean by lazy { checkTeeFunctionality() }
 
-    @Volatile private var rsaAttestableVerdict: Boolean? = null
-    private val rsaProbeInFlight = AtomicBoolean(false)
+    // Per (algorithm, security-level) attestation-capability verdicts, keyed by probe-key alias.
+    // A device may attest one algorithm or security level yet lack a provisioned attestation key
+    // for another (e.g. a TEE that attests RSA over a StrongBox that cannot), so each pair is
+    // probed and cached on its own.
+    private data class ProbeSpec(
+        val algorithm: String,
+        val strongBox: Boolean,
+        val keyAlias: String,
+    )
+
+    private val rsaTeeProbe =
+        ProbeSpec(KeyProperties.KEY_ALGORITHM_RSA, false, "TEESimulator_RsaAttestCheck")
+    private val rsaStrongBoxProbe =
+        ProbeSpec(KeyProperties.KEY_ALGORITHM_RSA, true, "TEESimulator_RsaAttestCheckSb")
+    private val ecTeeProbe =
+        ProbeSpec(KeyProperties.KEY_ALGORITHM_EC, false, "TEESimulator_EcAttestCheck")
+    private val ecStrongBoxProbe =
+        ProbeSpec(KeyProperties.KEY_ALGORITHM_EC, true, "TEESimulator_EcAttestCheckSb")
+
+    private val attestableVerdicts = ConcurrentHashMap<String, Boolean>()
+    private val attestProbesInFlight = ConcurrentHashMap<String, AtomicBoolean>()
 
     /**
-     * Whether the real TEE can attest an RSA key. A device may mint EC keys yet lack a provisioned
-     * RSA attestation key, so [isTeeFunctional] alone over-reports capability. AUTO dispatch reads
-     * this to forge RSA attestation only where the hardware genuinely cannot.
+     * Whether the real hardware can attest an RSA key at the requested security level. AUTO dispatch
+     * reads this to forge RSA attestation only where the hardware genuinely cannot serve it.
      *
-     * Only a definitive hardware verdict is cached: a successful probe, or a confirmed
-     * attestation-keys-unavailable failure. A transient or unrecognized failure reports attestable
-     * so dispatch PATCHes the genuine chain, then re-probes on the next read. A one-off keystore
-     * hiccup can never freeze the device into forging an attestation it could serve.
+     * Only a definitive verdict is cached: a successful probe, or a permanent keystore failure. A
+     * transient or unrecognized failure leaves the verdict unset and reports attestable, so dispatch
+     * PATCHes the genuine chain and re-probes next read — a one-off keystore hiccup can never freeze
+     * the device into forging an attestation it could serve.
      */
-    val isRsaAttestable: Boolean
-        get() {
-            rsaAttestableVerdict?.let { return it }
-            if (rsaProbeInFlight.compareAndSet(false, true)) {
-                try {
-                    probeRsaAttestability()?.let { rsaAttestableVerdict = it }
-                } finally {
-                    rsaProbeInFlight.set(false)
-                }
+    fun isRsaAttestable(strongBox: Boolean): Boolean =
+        isHardwareAttestable(if (strongBox) rsaStrongBoxProbe else rsaTeeProbe)
+
+    /** Whether the real hardware can attest an EC key at the requested security level. */
+    fun isEcAttestable(strongBox: Boolean): Boolean =
+        isHardwareAttestable(if (strongBox) ecStrongBoxProbe else ecTeeProbe)
+
+    private fun isHardwareAttestable(probe: ProbeSpec): Boolean {
+        attestableVerdicts[probe.keyAlias]?.let { return it }
+        val probeInFlight =
+            attestProbesInFlight.computeIfAbsent(probe.keyAlias) { AtomicBoolean(false) }
+        if (probeInFlight.compareAndSet(false, true)) {
+            try {
+                probeAttestability(probe)?.let { attestableVerdicts[probe.keyAlias] = it }
+            } finally {
+                probeInFlight.set(false)
             }
-            return rsaAttestableVerdict ?: true
         }
+        return attestableVerdicts[probe.keyAlias] ?: true
+    }
 
     /**
      * Lazily fetches and parses attestation data from a genuinely generated certificate. The result
@@ -138,59 +164,66 @@ object DeviceAttestationService {
     }
 
     /**
-     * Probes whether the real TEE can attest an RSA key by generating one with an attestation
-     * challenge. Mirrors [checkTeeFunctionality]; the request runs as the module UID, so it is
-     * skipped by interception and reaches genuine hardware rather than the forge path.
+     * Probes whether the real hardware can attest a key matching [probe] by generating one with an
+     * attestation challenge at the probe's algorithm and security level. Mirrors
+     * [checkTeeFunctionality]; the request runs as the module UID, so it is skipped by interception
+     * and reaches genuine hardware rather than the forge path.
      *
      * @return `true` if attestation succeeded, `false` only on a confirmed attestation-keys-
      *   unavailable failure, or `null` on a transient or unrecognized failure where the caller
      *   fails open and re-probes.
      */
-    private fun probeRsaAttestability(): Boolean? {
-        SystemLogger.info("Performing RSA attestation capability check...")
+    private fun probeAttestability(probe: ProbeSpec): Boolean? {
+        val label = "${probe.algorithm} attestation (strongBox=${probe.strongBox})"
+        SystemLogger.info("Performing $label capability check...")
         return try {
             val keyPairGenerator =
-                KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore")
+                KeyPairGenerator.getInstance(probe.algorithm, "AndroidKeyStore")
 
             val challenge = ByteArray(16).apply { SecureRandom().nextBytes(this) }
 
-            val spec =
-                KeyGenParameterSpec.Builder(RSA_ATTEST_CHECK_KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    .setAlgorithmParameterSpec(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
+            val builder =
+                KeyGenParameterSpec.Builder(probe.keyAlias, KeyProperties.PURPOSE_SIGN)
                     .setDigests(KeyProperties.DIGEST_SHA256)
-                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
                     .setAttestationChallenge(challenge)
-                    .build()
+                    .setIsStrongBoxBacked(probe.strongBox)
+            if (probe.algorithm == KeyProperties.KEY_ALGORITHM_RSA) {
+                builder
+                    .setAlgorithmParameterSpec(RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4))
+                    .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+            } else {
+                builder.setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+            }
 
-            keyPairGenerator.initialize(spec)
+            keyPairGenerator.initialize(builder.build())
             keyPairGenerator.generateKeyPair()
 
-            SystemLogger.info("RSA attestation capability check successful.")
+            SystemLogger.info("$label capability check successful.")
             true
         } catch (e: Exception) {
-            if (isRsaAttestationUnavailable(e)) {
-                SystemLogger.info("RSA attestation unsupported by hardware; AUTO will forge RSA attestation.")
+            if (isAttestationUnavailable(e)) {
+                SystemLogger.info("$label unsupported by hardware; AUTO will forge attestation.")
                 false
             } else {
                 SystemLogger.warning(
-                    "RSA attestation capability check failed transiently; treating as capable.",
+                    "$label capability check failed transiently; treating as capable.",
                     e,
                 )
                 null
             }
         } finally {
-            deleteRsaProbeKey()
+            deleteProbeKey(probe.keyAlias)
         }
     }
 
     /**
-     * Whether [error] definitively means the hardware cannot attest an RSA key: a permanent
+     * Whether [error] definitively means the hardware cannot attest the probed key: a permanent
      * [KeyStoreException] from the keystore. Transient failures and non-keystore errors return
      * `false`, so the caller fails open and re-probes rather than caching a guess. The probe runs a
-     * fixed, valid spec as root, so its only permanent keystore failure mode is missing RSA
-     * attestation support; [KeyStoreException.isTransientFailure] draws the transient/permanent line.
+     * fixed, valid spec as root, so its only permanent keystore failure mode is missing attestation
+     * support; [KeyStoreException.isTransientFailure] draws the transient/permanent line.
      */
-    private fun isRsaAttestationUnavailable(error: Throwable): Boolean {
+    private fun isAttestationUnavailable(error: Throwable): Boolean {
         var cause: Throwable? = error
         while (cause != null) {
             val keyStoreError = cause as? KeyStoreException
@@ -200,12 +233,11 @@ object DeviceAttestationService {
         return false
     }
 
-    private fun deleteRsaProbeKey() {
+    private fun deleteProbeKey(keyAlias: String) {
         try {
-            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-                .deleteEntry(RSA_ATTEST_CHECK_KEY_ALIAS)
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(keyAlias)
         } catch (e: Exception) {
-            SystemLogger.warning("Failed to delete RSA attestation probe key.", e)
+            SystemLogger.warning("Failed to delete attestation probe key.", e)
         }
     }
 

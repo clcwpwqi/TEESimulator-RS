@@ -709,9 +709,12 @@ class KeyMintSecurityLevelInterceptor(
                 // Device-ID attestation must be forged, not patched: the real TEE returns
                 // CANNOT_ATTEST_IDS, so there is no real chain to patch — only a synthetic one
                 // carrying the requested IDs and rooted under the keybox will satisfy the caller.
-                // AUTO forges RSA attestation only when the real TEE cannot provision an RSA
-                // attestation key (isRsaAttestable). EC and RSA-capable devices keep their genuine
-                // TEE chain via PATCH, which strict callers accept where a forgery is rejected.
+                // AUTO forges asymmetric attestation only when the real hardware cannot provision an
+                // attestation key for that algorithm at the requested security level: a device may
+                // attest RSA in the TEE yet not in StrongBox, so the probe must match the request.
+                // Devices that can attest keep their genuine chain via PATCH, which strict callers
+                // accept where a forgery is rejected.
+                val strongBox = securityLevel == SecurityLevel.STRONGBOX
                 val forceGenerate =
                     oversized ||
                         ConfigurationManager.shouldGenerate(callingUid) ||
@@ -720,8 +723,12 @@ class KeyMintSecurityLevelInterceptor(
                         hasDeviceIdAttestation ||
                         (ConfigurationManager.isAutoMode(callingUid) &&
                             parsedParams.attestationChallenge != null &&
-                            parsedParams.algorithm == Algorithm.RSA &&
-                            !DeviceAttestationService.isRsaAttestable)
+                            when (parsedParams.algorithm) {
+                                Algorithm.RSA ->
+                                    !DeviceAttestationService.isRsaAttestable(strongBox)
+                                Algorithm.EC -> !DeviceAttestationService.isEcAttestable(strongBox)
+                                else -> false
+                            })
 
                 SystemLogger.trace {
                     "[TRACE-$txId] dispatch: forceGen=$forceGenerate hasChallenge=${challenge != null} isSymmetric=$isSymmetric isAttestKey=$isAttestKeyRequest"
