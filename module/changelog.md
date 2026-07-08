@@ -1,3 +1,49 @@
+> [!NOTE]
+> The project is going through a heavy refactor at the moment, so public commits may lag behind for a while.
+
+---
+
+## TEESimulator-RS v6.0.1-282
+
+AUTO-mode key attestation now forges plain attestation from the keybox instead of deferring to the real TEE.
+
+### Detection coverage
+- AUTO dispatch probed the device with `checkTeeFunctionality`, which only proves the TEE can mint one EC key. It says nothing about RSA attestation, device-ID attestation, or whether a patched chain survives RSA verify. Plain attestation requests (attest-key OFF, challenge present) were routed to PATCH and deferred to hardware, so devices that can't back that surfaced KeyAttestation reds: `ATTESTATION_KEYS_NOT_PROVISIONED` (-49) and `BLOCK_TYPE_IS_NOT_01`.
+- AUTO targets carrying an attestation challenge now take the FORGE path, the same one attest-key-ON already used: a synthetic chain built from the keybox and rooted under the Google root key. Requests with no challenge still pass through to real hardware, so KeyDetector's hardware-backed checks are unaffected.
+
+### Verified
+- Offline conformance against real FORGE captures: uid10389 and uid10154 chains are GREEN; the root SPKI byte-matches `GOOGLE_ROOT_PUBLIC_KEY`.
+
+---
+
+## TEESimulator-RS v6.0.1-280
+
+Clears the Duck Detector generate-mode parcel fingerprint that real Android 16 hardware also trips, fixes RSA attestation under an EC-only keybox, and restores device-property attestation for Play Integrity hardware apps such as BHIM and UPI. Generate-mode fix field-confirmed on Android 16.
+
+### Detection coverage
+- Generate-mode fingerprint: Duck reads the reply at a flat 12-byte stride and flags the sentinel tuple at positions 12 and 13 that the device's native ALGORITHM-first authorization order lands on. Real A16 silicon trips the same probe, so faithful mirroring stayed flagged. `normalizeAuthorizationLayout` marshals the auth array, runs Duck's exact predicate, and applies a minimal deterministic reorder only when it would match. Count, values, security levels, and the cert chain are untouched, and the reorder keys on the byte condition, never on a package. Applied on both the patch and forge reply paths. (#33)
+- `updateAad` on a non-AEAD operation now answers per vendor: Samsung and Xiaomi-MTK TEEs return success, others return INVALID_TAG, matching Duck's OperationErrorPathProbe on both the sign/verify and cipher paths.
+
+### Attestation correctness (Android 16, EC and RSA)
+- RSA leaf under an EC-only keybox: patching used to catch the no-RSA-key throw and return the chain untouched, leaking the device's real unlocked Root of Trust for RSA keys while EC keys patched cleanly. It now falls back to any keybox key (EC preferred) and signs the patched leaf with the keybox key's own algorithm, so the RSA leaf re-roots to the Google keybox under a forged locked RoT.
+- RSA attest-key forge on an EC-only keybox: the forge path matched the algorithm exactly and threw -75 ATTESTATION_KEYS_NOT_PROVISIONED on a miss, so an RSA ATTEST_KEY request never rooted and verifiers reported an unknown certificate. It now falls back to any attestation key, since an EC key validly ECDSA-signs an RSA-subject leaf. No-op on a dual keybox.
+- A16 attestVersion: the device's KeyMint reports version 100 and the lazy cache shadowed the BAKLAVA-to-400 map, so the forge presented 100. It now caches the AOSP value per SDK and presents the correct 400.
+- Algorithm-split key on restore: a persisted record holding an EC private key under an RSA leaf failed every signature as DATA_TOO_LARGE_FOR_MODULUS. Restore now drops the record when the private key and served leaf disagree, so the next generateKey rebuilds a coherent key.
+- Stale chain on regenerate: reusing an alias in generateKey now evicts the cached chain, matching keystore2, so getKeyEntry serves the current key instead of a stale forge from an earlier generation.
+
+### App compatibility
+- Device-property attestation (BRAND, MODEL, and the rest) now forges unconditionally. The old gate probed the live TEE, which is dead on every device the module serves, so it rejected GMS Play Integrity's hardware path and broke BHIM and other UPI and Play-Integrity apps. Device-ID attestation (IMEI, serial) stays governed by the real KeyMint caller-permission rule: privileged callers get it, ordinary apps do not.
+- getKeyEntry now reaches the owned-key lookup for skipped privileged UIDs, so framework attestKeyAlias resolution no longer returns "Invalid attestKeyAlias" for Key Attestation over Shizuku. Non-owned keys still skip post-processing, so a real app's key is never patched.
+- Device-ID attestation over Shizuku (a privileged UID absent from target.txt) now takes the forge path instead of hitting the real TEE's CANNOT_ATTEST_IDS (-66). "Use attest key" no longer double-roots: a reused persistent attest key is resolved by KEY_ID as well as alias, and an unresolved designated attest key refuses to emit a leaf rather than silently re-rooting under the keybox.
+
+### Diagnostics (debug builds only)
+- Per-UID attestation dossier for targeted UIDs at /data/local/tmp/teesim/, recording the decoded chain on both forge and patch paths, key params, the keybox pick (including EC fail-safe), prop sources, forge failures, the emitted authorization shape, and served-versus-verified chains. Release builds strip this through R8 and stay silent. Keybox certificate serials log on every fetch for revocation triage.
+
+### Verified
+- Android 16: generate-mode fingerprint signal gone, confirmed on device 2026-06-19.
+
+---
+
 ## TEESimulator-RS v6.0.1-251
 
 14 commits since v6.0.0-235. Clears the remaining Duck Detector grant-domain rows (incl. the Android 16 OnePlus report), restores Google Wallet and fingerprint compatibility, and removes the in-module patch-level/bulletin resolvers. Test device (SDK 35) TEE tamper score 28 → 8.
@@ -5,10 +51,10 @@
 ### Detection coverage
 - Grant plane virtualized: owner read and cross-app `Domain.GRANT` read return one identical chain. 6 RED rows cleared. (28 → 18)
 - Generate-mode fingerprint: dropped 2 surplus authorizations (both patchlevels), USER_ID moved to SOFTWARE to mirror a captured device. (18 → 8)
-- Android 16 grant: patch-mode keys now served on the grant plane, so owner and grant reads match — fixes CHAIN_SPLIT.
+- Android 16 grant: patch-mode keys now served on the grant plane, so owner and grant reads match, fixes CHAIN_SPLIT.
 - Grant gated to SDK ≥ 36: Android 15 answers PERMISSION_DENIED, no synthetic over-capability.
 - Stale-chain eviction: import and updateSubcomponent drop the cached attestation; no pre-mutation chain replays.
-- Lifecycle coherence: clearNamespace / deleteAllKeys / migrateKeyNamespace mirror synthetic key and grant state — defeats delete-then-read probes.
+- Lifecycle coherence: clearNamespace / deleteAllKeys / migrateKeyNamespace mirror synthetic key and grant state, defeats delete-then-read probes.
 - Device-ID attestation mirrors the real TEE: returns CANNOT_ATTEST_IDS where silicon can't attest, instead of forging it.
 
 ### App compatibility
@@ -16,8 +62,8 @@
 - Fingerprint / vendor keys: KEY_ID miss skips the post-handler, so real HAL operations are no longer wrapped and broken. (PR #26)
 
 ### Removed
-- PatchLevelManager — auto-resolved the security-patch date from an installed PlayIntegrityFix module (with hot-reload) and applied it to props.
-- BulletinPoller — scheduled security-bulletin refresh.
+- PatchLevelManager, auto-resolved the security-patch date from an installed PlayIntegrityFix module (with hot-reload) and applied it to props.
+- BulletinPoller, scheduled security-bulletin refresh.
 
 ### Other
 - Release builds purge stale `teesim-*.bin` diagnostics from `/data/local/tmp` at boot.
@@ -25,7 +71,7 @@
 
 ### Verified
 - SDK 35, Xiaomi 23106RN0DA: tamper 28 → 8; generate-mode signal gone; 4 grant rows UNAVAILABLE (correct for Android 15); no regressions.
-- Android 16 grant fix built but unconfirmed on SDK 36 — needs an affected OnePlus user to confirm the grant rows clear.
+- Android 16 grant fix built but unconfirmed on SDK 36, needs an affected OnePlus user to confirm the grant rows clear.
 
 ---
 
@@ -176,7 +222,7 @@ Major release integrating 30+ AOSP compliance improvements from upstream PR #157
 
 ## TEESimulator-RS v4.8.1: StrongBox Op Rejection Fix
 
-- **StrongBox op limit gate fix** — `trackAndEnforceOpLimit` was only called in the `Domain.KEY_ID` not-found path, so software-generated keys (found via `Domain.APP`) bypassed `STRONGBOX_MAX_CONCURRENT_OPS=4` entirely. DuckDetector's concurrent signing handles test created 24+ operations that all succeeded via LRU pruning instead of being rejected with `TOO_MANY_OPERATIONS (-29)`. Now enforced for all StrongBox createOperation paths.
+- **StrongBox op limit gate fix**, `trackAndEnforceOpLimit` was only called in the `Domain.KEY_ID` not-found path, so software-generated keys (found via `Domain.APP`) bypassed `STRONGBOX_MAX_CONCURRENT_OPS=4` entirely. DuckDetector's concurrent signing handles test created 24+ operations that all succeeded via LRU pruning instead of being rejected with `TOO_MANY_OPERATIONS (-29)`. Now enforced for all StrongBox createOperation paths.
 
 ---
 
@@ -184,13 +230,13 @@ Major release integrating 30+ AOSP compliance improvements from upstream PR #157
 
 Tested against DuckDetector on OnePlus (Android 16, KSU). Tamper score dropped from 32 to 8.
 
-- **LRU operation pruning** — Concurrent software operations capped at 15 per UID (TEE) and 4 per UID (StrongBox), with oldest-first eviction. Pruned operations return `INVALID_OPERATION_HANDLE (-28)`, matching AOSP keystore2 malus-based pruning.
-- **StrongBox param guard** — Unsupported StrongBox params (RSA >2048-bit, non-P256 EC curves) forwarded to real HAL for proper rejection instead of generating in software.
-- **StrongBox timing** — Key generation floors at 250ms, signing at 80ms on StrongBox security level to match real secure element latency.
-- **StrongBox op limit** — Sliding-window enforcer caps concurrent StrongBox operations for both software and hardware key paths, returning `TOO_MANY_OPERATIONS (-29)` when exceeded.
-- **ECDSA algorithm alias** — Accept "ECDSA" in addition to "EC" as JCA private key algorithm name. Fixes SIGSEGV crash on Android 10 devices where the provider reports EC keys as "ECDSA". Closes #4.
-- **createOperation domain handling** — Software-generated keys now found via both `Domain.APP` (alias) and `Domain.KEY_ID` (nspace) lookup paths.
-- **Permission guards** — Device ID attestation tags (IMEI, MEID, serial) require caller permission checks.
+- **LRU operation pruning**, Concurrent software operations capped at 15 per UID (TEE) and 4 per UID (StrongBox), with oldest-first eviction. Pruned operations return `INVALID_OPERATION_HANDLE (-28)`, matching AOSP keystore2 malus-based pruning.
+- **StrongBox param guard**, Unsupported StrongBox params (RSA >2048-bit, non-P256 EC curves) forwarded to real HAL for proper rejection instead of generating in software.
+- **StrongBox timing**, Key generation floors at 250ms, signing at 80ms on StrongBox security level to match real secure element latency.
+- **StrongBox op limit**, Sliding-window enforcer caps concurrent StrongBox operations for both software and hardware key paths, returning `TOO_MANY_OPERATIONS (-29)` when exceeded.
+- **ECDSA algorithm alias**, Accept "ECDSA" in addition to "EC" as JCA private key algorithm name. Fixes SIGSEGV crash on Android 10 devices where the provider reports EC keys as "ECDSA". Closes #4.
+- **createOperation domain handling**, Software-generated keys now found via both `Domain.APP` (alias) and `Domain.KEY_ID` (nspace) lookup paths.
+- **Permission guards**, Device ID attestation tags (IMEI, MEID, serial) require caller permission checks.
 
 ---
 
@@ -198,20 +244,20 @@ Tested against DuckDetector on OnePlus (Android 16, KSU). Tamper score dropped f
 
 Tested against [KeyDetector](https://github.com/XiaoTong6666/KeyDetector) and [Key Attestation](https://github.com/nickel-lang/nickel) on OnePlus (Android 16) and Xiaomi Redmi 14C (Android 14).
 
-- **PADDING encoding** — Fixed ASN.1 encoding of PADDING tag in attestation extension from individual `[6] INTEGER` entries to `[6] SET OF INTEGER`, matching AOSP `attestation_record.h` schema. Broke all RSA key attestation since v4.6.
-- **Operation error-path conformance** — Software operations now track finalized state and return `INVALID_OPERATION_HANDLE (-28)` on post-abort calls. Input length guard (32KB) returns `TOO_MUCH_DATA` matching AOSP `operation.rs`. Passes KeyDetector's OperationErrorPathChecker.
-- **updateAad support** — Added `updateAad` to `SoftwareOperationBinder`, fixing `AbstractMethodError` on Android 16 where the runtime Stub declares it abstract.
-- **Algorithm inference** — `createOperation` now infers algorithm from the stored key pair when operation params omit the ALGORITHM tag, matching AOSP behavior.
+- **PADDING encoding**, Fixed ASN.1 encoding of PADDING tag in attestation extension from individual `[6] INTEGER` entries to `[6] SET OF INTEGER`, matching AOSP `attestation_record.h` schema. Broke all RSA key attestation since v4.6.
+- **Operation error-path conformance**, Software operations now track finalized state and return `INVALID_OPERATION_HANDLE (-28)` on post-abort calls. Input length guard (32KB) returns `TOO_MUCH_DATA` matching AOSP `operation.rs`. Passes KeyDetector's OperationErrorPathChecker.
+- **updateAad support**, Added `updateAad` to `SoftwareOperationBinder`, fixing `AbstractMethodError` on Android 16 where the runtime Stub declares it abstract.
+- **Algorithm inference**, `createOperation` now infers algorithm from the stored key pair when operation params omit the ALGORITHM tag, matching AOSP behavior.
 
 ---
 
 ## TEESimulator-RS v4.6: Rebrand & Detection Fix
 
-- **RTT normalization rework** — Replaced Gaussian sleep (mean=55ms) with a 15ms floor fence. The old approach triggered Chunqiu Native Check 2.8 timing analysis; the floor-only approach satisfies the minimum RTT threshold without creating a detectable delay pattern.
-- **Cross-algorithm attestation** — Signing algorithm now derived from the attestation key's actual type, not the generated key's algorithm. Fixes BouncyCastle crash when signing RSA keys with EC attestation keys (Shizuku attestation flow).
-- **Device ID attestation** — Serial/IMEI/MEID/secondImei tags now flow through to software cert gen instead of blanket rejection. Only DEVICE_UNIQUE_ATTESTATION is rejected, matching AOSP keystore2 policy.
-- **Rebrand to TEESimulator-RS** — Distinguishes this fork from upstream. Version scheme simplified to v{major}.{minor}-{commitCount}.
-- **CI streamlined** — Release pipeline uses Gradle-generated filenames directly, eliminating the rename step.
+- **RTT normalization rework**, Replaced Gaussian sleep (mean=55ms) with a 15ms floor fence. The old approach triggered Chunqiu Native Check 2.8 timing analysis; the floor-only approach satisfies the minimum RTT threshold without creating a detectable delay pattern.
+- **Cross-algorithm attestation**, Signing algorithm now derived from the attestation key's actual type, not the generated key's algorithm. Fixes BouncyCastle crash when signing RSA keys with EC attestation keys (Shizuku attestation flow).
+- **Device ID attestation**, Serial/IMEI/MEID/secondImei tags now flow through to software cert gen instead of blanket rejection. Only DEVICE_UNIQUE_ATTESTATION is rejected, matching AOSP keystore2 policy.
+- **Rebrand to TEESimulator-RS**, Distinguishes this fork from upstream. Version scheme simplified to v{major}.{minor}-{commitCount}.
+- **CI streamlined**, Release pipeline uses Gradle-generated filenames directly, eliminating the rename step.
 
 ---
 
@@ -219,28 +265,28 @@ Tested against [KeyDetector](https://github.com/XiaoTong6666/KeyDetector) and [K
 
 Tested against [KeyDetector](https://github.com/XiaoTong6666/KeyDetector) (23-check attestation validator). All keystore-level checks now pass.
 
-- **Key deletion consistency** — After deleting a software-generated key, `getKeyEntry` now correctly returns `KEY_NOT_FOUND` instead of falling through to a stale live-patch fallback. Fixes binder consistency checks that detect ghost key responses.
-- **generateKey timing normalization** — Software key generation RTT now matches real TEE latency profile (Gaussian distribution, mean=55ms, floor=15ms). Previously completed in ~4ms, which is an immediate timing side-channel.
-- **Delete cleanup scope** — `deleteKey` now clears all cached state (patched chains, attestation keys) regardless of whether the key was software or hardware-generated.
+- **Key deletion consistency**, After deleting a software-generated key, `getKeyEntry` now correctly returns `KEY_NOT_FOUND` instead of falling through to a stale live-patch fallback. Fixes binder consistency checks that detect ghost key responses.
+- **generateKey timing normalization**, Software key generation RTT now matches real TEE latency profile (Gaussian distribution, mean=55ms, floor=15ms). Previously completed in ~4ms, which is an immediate timing side-channel.
+- **Delete cleanup scope**, `deleteKey` now clears all cached state (patched chains, attestation keys) regardless of whether the key was software or hardware-generated.
 
 ---
 
 ## TEESimulator v4.4: AOSP Conformance
 
-- **Binder error reply format** — Aligned EX_SERVICE_SPECIFIC wire layout with AOSP Status.cpp, including the remote stack trace header field.
-- **Key enumeration** — Corrected list_past_alias pagination order to match AOSP database.rs semantics.
-- **KeyMetadata fields** — Generated key responses now include modificationTimeMs, Tag.ORIGIN, and normalized KeyDescriptor fields per AOSP Keystore2.
-- **Parcel handling** — hasException() preserves reply position for downstream consumers.
+- **Binder error reply format**, Aligned EX_SERVICE_SPECIFIC wire layout with AOSP Status.cpp, including the remote stack trace header field.
+- **Key enumeration**, Corrected list_past_alias pagination order to match AOSP database.rs semantics.
+- **KeyMetadata fields**, Generated key responses now include modificationTimeMs, Tag.ORIGIN, and normalized KeyDescriptor fields per AOSP Keystore2.
+- **Parcel handling**, hasException() preserves reply position for downstream consumers.
 
 ---
 
 ## TEESimulator v4.3: Performance & Reliability
 
-- **Debug log gating** — `SystemLogger.debug()` now skipped entirely in release builds, eliminating unnecessary logcat syscalls on every intercepted transaction.
-- **Supervisor backoff** — Exponential restart delay (500ms → 30s cap) prevents CPU spin if the daemon crashes repeatedly. Resets automatically once stable.
-- **Process priority** — Daemon runs at nice=10, yielding CPU to foreground apps on constrained devices.
-- **Map eviction** — Rate limiter and file lock maps now evict stale entries instead of growing unbounded.
-- **CI pipeline** — Single-trigger build→release pipeline with proper changelog extraction and correctly sized artifacts.
+- **Debug log gating**, `SystemLogger.debug()` now skipped entirely in release builds, eliminating unnecessary logcat syscalls on every intercepted transaction.
+- **Supervisor backoff**, Exponential restart delay (500ms → 30s cap) prevents CPU spin if the daemon crashes repeatedly. Resets automatically once stable.
+- **Process priority**, Daemon runs at nice=10, yielding CPU to foreground apps on constrained devices.
+- **Map eviction**, Rate limiter and file lock maps now evict stale entries instead of growing unbounded.
+- **CI pipeline**, Single-trigger build→release pipeline with proper changelog extraction and correctly sized artifacts.
 
 ---
 
@@ -252,9 +298,9 @@ Fixes 6 detection vectors flagged by attestation validator apps.
 
 Replicate AOSP keystore2's `add_required_parameters()` validation that our software keygen path was bypassing:
 
-- **CREATION_DATETIME** — Reject caller-provided input with `INVALID_ARGUMENT (20)`, matching `security_level.rs:424`. Our cert gen still adds its own timestamp, same as real keystore2.
-- **Device ID attestation** — Reject ATTESTATION_ID_SERIAL, IMEI, MEID, SECOND_IMEI, and DEVICE_UNIQUE_ATTESTATION with `CANNOT_ATTEST_IDS (-66)`. No consumer app has READ_PRIVILEGED_PHONE_STATE.
-- **Error reply format** — Fixed AIDL ServiceSpecificException parcel write order (was errorCode→message, now message→errorCode).
+- **CREATION_DATETIME**, Reject caller-provided input with `INVALID_ARGUMENT (20)`, matching `security_level.rs:424`. Our cert gen still adds its own timestamp, same as real keystore2.
+- **Device ID attestation**, Reject ATTESTATION_ID_SERIAL, IMEI, MEID, SECOND_IMEI, and DEVICE_UNIQUE_ATTESTATION with `CANNOT_ATTEST_IDS (-66)`. No consumer app has READ_PRIVILEGED_PHONE_STATE.
+- **Error reply format**, Fixed AIDL ServiceSpecificException parcel write order (was errorCode→message, now message→errorCode).
 
 ### Certificate Fix
 
@@ -282,15 +328,15 @@ Major release. Certificate chain generation rebuilt from the ground up in Rust, 
 
 ### Native Cert Generation
 
-The headline feature. `libcertgen.so` generates X.509 certificate chains using `ring` (EC-P256/P384) and `rsa` (RSA-2048/4096) with manual DER assembly. No more BouncyCastle quirks — issuer/subject DN bytes are injected directly from the keybox, ensuring byte-perfect chain linkage. BouncyCastle remains as fallback for unsupported curves (P-224, P-521, Curve25519).
+The headline feature. `libcertgen.so` generates X.509 certificate chains using `ring` (EC-P256/P384) and `rsa` (RSA-2048/4096) with manual DER assembly. No more BouncyCastle quirks, issuer/subject DN bytes are injected directly from the keybox, ensuring byte-perfect chain linkage. BouncyCastle remains as fallback for unsupported curves (P-224, P-521, Curve25519).
 
 ### Anti-Detection Hardening
 
-- **Challenge validation** — Oversized attestation challenges (>128 bytes) now return `INVALID_INPUT_LENGTH (-21)`, matching real KeyMint behavior. Previously accepted silently — DuckDetector exploited this.
-- **Per-UID rate limiter** — 2 hardware keygens per 30s burst, 2 concurrent max. Overflow falls back to software certs. Blocks DuckDetector-style keygen flooding that starves GMS.
-- **importKey eviction guard** — Retained patch chains prevent generate-then-import attacks that evict cached attestation data.
-- **256KB native payload cap** — Oversized binder payloads bypass interception cleanly instead of stalling threads.
-- **Alias size rejection** — Oversized key aliases rejected before they hit the binder buffer.
+- **Challenge validation**, Oversized attestation challenges (>128 bytes) now return `INVALID_INPUT_LENGTH (-21)`, matching real KeyMint behavior. Previously accepted silently, DuckDetector exploited this.
+- **Per-UID rate limiter**, 2 hardware keygens per 30s burst, 2 concurrent max. Overflow falls back to software certs. Blocks DuckDetector-style keygen flooding that starves GMS.
+- **importKey eviction guard**, Retained patch chains prevent generate-then-import attacks that evict cached attestation data.
+- **256KB native payload cap**, Oversized binder payloads bypass interception cleanly instead of stalling threads.
+- **Alias size rejection**, Oversized key aliases rejected before they hit the binder buffer.
 
 ### Key Persistence
 
@@ -302,7 +348,7 @@ Generated keys now survive reboots. File-backed storage with file-level locking,
 - Correct `module_hash` field to match AOSP Keystore2 format
 - Override pre-existing attest keys instead of skipping them
 - Strip HTML comments from PEM blocks in keybox parsing
-- Security patch consistency — `system=prop` forces boot/vendor to match
+- Security patch consistency, `system=prop` forces boot/vendor to match
 
 ### Module Lifecycle
 
@@ -313,9 +359,9 @@ Generated keys now survive reboots. File-backed storage with file-level locking,
 ### Stability
 
 - FileObserver NPE on config deletion fixed
-- Global uncaught exception handler — daemon stays alive on unexpected errors
+- Global uncaught exception handler, daemon stays alive on unexpected errors
 - PEM parsing hardened against malformed keybox files
 
 ### Tested Against
 
-DuckDetector, Luna, Play Integrity, Key Attestation Demo — all passing on Redmi 14C (Android 14, Beanpod KeyMaster, KSU).
+DuckDetector, Luna, Play Integrity, Key Attestation Demo, all passing on Redmi 14C (Android 14, Beanpod KeyMaster, KSU).
