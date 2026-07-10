@@ -3,9 +3,9 @@
 
 ---
 
-## TEESimulator-RS v6.0.1-290
+## TEESimulator-RS v6.0.1-292
 
-42 commits since v6.0.1-282. Adds SOTER (Tencent fingerprint/secure-payment) support, hardens AUTO dispatch against strict app checks, moves debug diagnostics to external storage, and fixes several attestation edge cases found on Android 16.
+44 commits since v6.0.1-282. Adds SOTER (Tencent fingerprint/secure-payment) support, hardens AUTO dispatch against strict app checks, moves debug diagnostics to external storage, and fixes several attestation edge cases found on Android 16.
 
 ### SOTER support
 - Forge `com.tencent.soter.soterserver.ISoterService` Layer-A replies so the SOTER capability probe reports `available=true / damaged=false` on bootloader-unlocked devices whose SOTER TA can no longer use its factory ATTK.
