@@ -1,0 +1,138 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"jsonFile" : "directory-.-RelWithDebInfo-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5
+					]
+				},
+				{
+					"build" : "external/LSPlt/lsplt/src/main/jni",
+					"jsonFile" : "directory-external.LSPlt.lsplt.src.main.jni-RelWithDebInfo-7644787a0d580922e69f.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.10"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "external/LSPlt/lsplt/src/main/jni",
+					"targetIndexes" : 
+					[
+						4
+					]
+				}
+			],
+			"name" : "RelWithDebInfo",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "TEESimulator",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						1
+					],
+					"name" : "lsplt",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						4
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "TEESimulator::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-TEESimulator-RelWithDebInfo-2d4101360c4ee0b3512c.json",
+					"name" : "TEESimulator",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "binder::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-binder-RelWithDebInfo-de8ac08a62065f96e5c8.json",
+					"name" : "binder",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "libinject.so::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-libinject.so-RelWithDebInfo-2d325e712979e58c78b0.json",
+					"name" : "libinject.so",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "libsupervisor.so::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-libsupervisor.so-RelWithDebInfo-f6d51df3d41260b89f95.json",
+					"name" : "libsupervisor.so",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "lsplt_static::@29a2651407dab561379f",
+					"jsonFile" : "target-lsplt_static-RelWithDebInfo-8dc53b51110fb0fbb4d7.json",
+					"name" : "lsplt_static",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "utils::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-utils-RelWithDebInfo-a252d85260c980b20583.json",
+					"name" : "utils",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+		"source" : "/workspace/app/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

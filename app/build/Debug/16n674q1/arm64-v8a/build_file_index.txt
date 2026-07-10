@@ -1,0 +1,2 @@
+/workspace/app/src/main/cpp/CMakeLists.txt
+/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/CMakeLists.txt

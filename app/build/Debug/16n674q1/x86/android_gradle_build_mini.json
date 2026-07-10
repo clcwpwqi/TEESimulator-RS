@@ -1,0 +1,63 @@
+{
+  "buildFiles": [
+    "/workspace/app/src/main/cpp/CMakeLists.txt",
+    "/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/opt/android-sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/workspace/app/build/Debug/16n674q1/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/opt/android-sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/workspace/app/build/Debug/16n674q1/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "utils::@6890427a1f51a3e7e1df": {
+      "artifactName": "utils",
+      "abi": "x86",
+      "output": "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libutils.so",
+      "runtimeFiles": []
+    },
+    "TEESimulator::@6890427a1f51a3e7e1df": {
+      "artifactName": "TEESimulator",
+      "abi": "x86",
+      "output": "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libTEESimulator.so",
+      "runtimeFiles": [
+        "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libbinder.so",
+        "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libutils.so"
+      ]
+    },
+    "libsupervisor.so::@6890427a1f51a3e7e1df": {
+      "artifactName": "libsupervisor.so",
+      "abi": "x86",
+      "output": "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libsupervisor.so",
+      "runtimeFiles": []
+    },
+    "libinject.so::@6890427a1f51a3e7e1df": {
+      "artifactName": "libinject.so",
+      "abi": "x86",
+      "output": "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libinject.so",
+      "runtimeFiles": []
+    },
+    "binder::@6890427a1f51a3e7e1df": {
+      "artifactName": "binder",
+      "abi": "x86",
+      "output": "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libbinder.so",
+      "runtimeFiles": [
+        "/workspace/app/build/intermediates/cxx/Debug/16n674q1/obj/x86/libutils.so"
+      ]
+    },
+    "lsplt_static::@29a2651407dab561379f": {
+      "artifactName": "lsplt_static",
+      "abi": "x86",
+      "output": "/workspace/app/build/Debug/16n674q1/x86/external/LSPlt/lsplt/src/main/jni/liblsplt_static.a",
+      "runtimeFiles": []
+    }
+  }
+}

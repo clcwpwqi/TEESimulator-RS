@@ -1,0 +1,8 @@
+org.matrix.TEESimulator.app-pngs-0 /workspace/app/build/generated/res/pngs/release
+org.matrix.TEESimulator.app-resValues-1 /workspace/app/build/generated/res/resValues/release
+org.matrix.TEESimulator.app-updated_navigation_xml-2 /workspace/app/build/generated/updated_navigation_xml/release
+org.matrix.TEESimulator.app-packageReleaseResources-3 /workspace/app/build/intermediates/incremental/release/packageReleaseResources/merged.dir
+org.matrix.TEESimulator.app-packageReleaseResources-4 /workspace/app/build/intermediates/incremental/release/packageReleaseResources/stripped.dir
+org.matrix.TEESimulator.app-release-5 /workspace/app/build/intermediates/merged_res/release/mergeReleaseResources
+org.matrix.TEESimulator.app-main-6 /workspace/app/src/main/res
+org.matrix.TEESimulator.app-release-7 /workspace/app/src/release/res

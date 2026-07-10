@@ -1,0 +1,15 @@
+# ninja log v5
+11	364	1783696598657901211	CMakeFiles/libsupervisor.so.dir/supervisor.cpp.o	518bb95d37cff6bf
+371	598	1783696598889903399	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/arm64-v8a/libsupervisor.so	c0efbbdc6ca4f959
+0	3093	1783696601377926857	CMakeFiles/utils.dir/stub/stub_utils.cpp.o	ff7d63c7fcfde07e
+3158	3508	1783696601797930817	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/arm64-v8a/libutils.so	c84f539e3066ea7b
+9	4198	1783696602477937229	CMakeFiles/libinject.so.dir/inject/utils.cpp.o	5d7dce73002c87e4
+7	4256	1783696602489937342	CMakeFiles/binder.dir/stub/stub_binder.cpp.o	970c2a7742c70721
+4259	4492	1783696602789940170	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/arm64-v8a/libbinder.so	ab1e6949638c0452
+8	4609	1783696602897941188	CMakeFiles/libinject.so.dir/inject/main.cpp.o	48b5594f52b500a3
+599	6596	1783696604881959895	CMakeFiles/TEESimulator.dir/binder_interceptor.cpp.o	e9f3bb4c80fdaaf5
+4214	7164	1783696605373964534	external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir/elf_util.cc.o	528a94d71a93e6e4
+3508	7507	1783696605769968269	external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir/lsplt.cc.o	712d27a5f3f373ec
+7548	7600	1783696605889969400	external/LSPlt/lsplt/src/main/jni/liblsplt_static.a	d21c54683d27df33
+7601	7773	1783696606069971097	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/arm64-v8a/libTEESimulator.so	381e987b64eae065
+7600	7782	1783696606077971172	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/arm64-v8a/libinject.so	ec9e4431b63cab32

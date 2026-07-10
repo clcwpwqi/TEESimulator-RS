@@ -1,0 +1,42 @@
+[
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DBINDER_DISABLE_NATIVE_HANDLE -Dutils_EXPORTS -I/workspace/app/src/main/cpp/external/AOSP/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIC -std=gnu++2b -o CMakeFiles/utils.dir/stub/stub_utils.cpp.o -c /workspace/app/src/main/cpp/stub/stub_utils.cpp",
+  "file": "/workspace/app/src/main/cpp/stub/stub_utils.cpp"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DBINDER_DISABLE_NATIVE_HANDLE -Dbinder_EXPORTS -I/workspace/app/src/main/cpp/external/AOSP/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIC -std=gnu++2b -o CMakeFiles/binder.dir/stub/stub_binder.cpp.o -c /workspace/app/src/main/cpp/stub/stub_binder.cpp",
+  "file": "/workspace/app/src/main/cpp/stub/stub_binder.cpp"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DBINDER_DISABLE_NATIVE_HANDLE -I/workspace/app/src/main/cpp/include -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIE -std=gnu++2b -o CMakeFiles/libinject.so.dir/inject/main.cpp.o -c /workspace/app/src/main/cpp/inject/main.cpp",
+  "file": "/workspace/app/src/main/cpp/inject/main.cpp"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DBINDER_DISABLE_NATIVE_HANDLE -I/workspace/app/src/main/cpp/include -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIE -std=gnu++2b -o CMakeFiles/libinject.so.dir/inject/utils.cpp.o -c /workspace/app/src/main/cpp/inject/utils.cpp",
+  "file": "/workspace/app/src/main/cpp/inject/utils.cpp"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DBINDER_DISABLE_NATIVE_HANDLE -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIE -std=gnu++2b -o CMakeFiles/libsupervisor.so.dir/supervisor.cpp.o -c /workspace/app/src/main/cpp/supervisor.cpp",
+  "file": "/workspace/app/src/main/cpp/supervisor.cpp"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -DBINDER_DISABLE_NATIVE_HANDLE -DTEESimulator_EXPORTS -I/workspace/app/src/main/cpp/external/linux-kernel/include -I/workspace/app/src/main/cpp/include -I/workspace/app/src/main/cpp/external/AOSP/include -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIC -std=gnu++2b -o CMakeFiles/TEESimulator.dir/binder_interceptor.cpp.o -c /workspace/app/src/main/cpp/binder_interceptor.cpp",
+  "file": "/workspace/app/src/main/cpp/binder_interceptor.cpp"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/include -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIC   -std=c++20 -std=gnu++2b -o external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir/lsplt.cc.o -c /workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/lsplt.cc",
+  "file": "/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/lsplt.cc"
+},
+{
+  "directory": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+  "command": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --target=x86_64-none-linux-android29 --sysroot=/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/include -I/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-rtti -fno-exceptions -O2 -g -DNDEBUG -fPIC   -std=c++20 -std=gnu++2b -o external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir/elf_util.cc.o -c /workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/elf_util.cc",
+  "file": "/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/elf_util.cc"
+}
+]

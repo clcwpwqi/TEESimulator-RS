@@ -1,0 +1,79 @@
+{
+  "buildFiles": [
+    "/workspace/app/src/main/cpp/CMakeLists.txt",
+    "/workspace/app/src/main/cpp/external/LSPlt/lsplt/src/main/jni/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/opt/android-sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/opt/android-sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "TEESimulator::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "TEESimulator",
+      "output": "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libTEESimulator.so",
+      "runtimeFiles": [
+        "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libbinder.so",
+        "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libutils.so"
+      ]
+    },
+    "binder::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "binder",
+      "output": "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libbinder.so",
+      "runtimeFiles": [
+        "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libutils.so"
+      ]
+    },
+    "libinject.so::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "libinject.so",
+      "output": "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libinject.so",
+      "runtimeFiles": []
+    },
+    "libsupervisor.so::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "libsupervisor.so",
+      "output": "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libsupervisor.so",
+      "runtimeFiles": []
+    },
+    "lsplt_static::@29a2651407dab561379f": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "lsplt_static",
+      "output": "/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/external/LSPlt/lsplt/src/main/jni/liblsplt_static.a"
+    },
+    "utils::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "utils",
+      "output": "/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86_64/libutils.so",
+      "runtimeFiles": []
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/opt/android-sdk/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp",
+    "cc"
+  ]
+}

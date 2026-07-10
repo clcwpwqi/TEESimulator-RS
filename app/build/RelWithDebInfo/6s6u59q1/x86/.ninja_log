@@ -1,0 +1,15 @@
+# ninja log v5
+13	294	1783696618446087786	CMakeFiles/libsupervisor.so.dir/supervisor.cpp.o	33337b602acb38df
+310	535	1783696618698090162	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86/libsupervisor.so	53d7d4bdd2111884
+1	2695	1783696620846110415	CMakeFiles/utils.dir/stub/stub_utils.cpp.o	dd593b67d818d569
+2740	3194	1783696621306114752	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86/libutils.so	5adae7542ad5ed32
+10	3731	1783696621870120070	CMakeFiles/libinject.so.dir/inject/utils.cpp.o	265ee8cb49d9d1d
+2	4445	1783696622582126783	CMakeFiles/binder.dir/stub/stub_binder.cpp.o	928e2f27e4c540f4
+4450	4742	1783696622902129800	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86/libbinder.so	5772c98e59665fe5
+7	5501	1783696623610136476	CMakeFiles/libinject.so.dir/inject/main.cpp.o	591bfd4e42969ced
+535	6709	1783696624850148166	CMakeFiles/TEESimulator.dir/binder_interceptor.cpp.o	7828fc05020fc44f
+3740	7191	1783696625266152088	external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir/elf_util.cc.o	ce86c629052f7217
+3195	8039	1783696626158160499	external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir/lsplt.cc.o	681556d24d8f771f
+8039	8119	1783696626266161518	external/LSPlt/lsplt/src/main/jni/liblsplt_static.a	d21c54683d27df33
+8121	8284	1783696626426163026	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86/libTEESimulator.so	b11135ce82bd033e
+8120	8289	1783696626454163290	/workspace/app/build/intermediates/cxx/RelWithDebInfo/6s6u59q1/obj/x86/libinject.so	995a6d1d7f1ecc0b

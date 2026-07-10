@@ -1,0 +1,10 @@
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/utils.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/binder.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/libinject.so.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/libsupervisor.so.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/TEESimulator.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/edit_cache.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/CMakeFiles/rebuild_cache.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/external/LSPlt/lsplt/src/main/jni/CMakeFiles/lsplt_static.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/external/LSPlt/lsplt/src/main/jni/CMakeFiles/edit_cache.dir
+/workspace/app/build/RelWithDebInfo/6s6u59q1/x86_64/external/LSPlt/lsplt/src/main/jni/CMakeFiles/rebuild_cache.dir
