@@ -3,6 +3,44 @@
 
 ---
 
+## TEESimulator-RS v6.0.1-290
+
+42 commits since v6.0.1-282. Adds SOTER (Tencent fingerprint/secure-payment) support, hardens AUTO dispatch against strict app checks, moves debug diagnostics to external storage, and fixes several attestation edge cases found on Android 16.
+
+### SOTER support
+- Forge `com.tencent.soter.soterserver.ISoterService` Layer-A replies so the SOTER capability probe reports `available=true / damaged=false` on bootloader-unlocked devices whose SOTER TA can no longer use its factory ATTK.
+- On-demand injection supervisor for the `soterserver` process, with re-bind retry, exponential backoff, and lifecycle integration in `App.main()`.
+- Sepolicy grant for ptrace injection into `platform_app` (the soterserver domain), mirroring the existing keystore grant.
+
+### Detection coverage & AUTO dispatch
+- AUTO forge is now gated by a per-security-level RSA/EC capability probe instead of a single TEE-wide probe, so devices whose TEE provisions RSA but StrongBox does not keep the genuine chain for the capable level while incapable levels forge.
+- The RSA/EC probe memoizes only definitive verdicts; transient failures fail open and re-probe on the next request.
+- Vendor-gated real-op `updateAad`: Samsung/Xiaomi-MTK TEEs return success on non-AEAD `updateAad`, other vendors return `INVALID_TAG`, matching Duck Detector's operation error-path probe.
+- Generate-mode authorization layout is normalized to clear Duck Detector's flat-stride fingerprint when the byte pattern would otherwise match.
+
+### Attestation correctness
+- Device-ID attestation (IMEI/serial) via privileged UIDs such as Shizuku now force-forges instead of hitting the real TEE's `CANNOT_ATTEST_IDS (-66)`.
+- "Use attest key" resolves the designated key by `KEY_ID` as well as alias and refuses to emit a leaf when unresolved, preventing silent double-rooting.
+- RSA attest-key forge falls back to any usable keybox key on EC-only keyboxes; an EC key validly ECDSA-signs an RSA-subject leaf.
+- Persisted keys whose private-key algorithm disagrees with the served leaf are dropped on restore, avoiding `DATA_TOO_LARGE_FOR_MODULUS` failures.
+- Stale cached chains are evicted on key regeneration/import/updateSubcomponent so `getKeyEntry` serves the current key.
+- Android 16 `attestVersion` now presents the AOSP-mapped value (400 for BAKLAVA) instead of the raw HAL value (100).
+
+### Diagnostics (debug builds only)
+- Move per-UID diagnostics from `/data/local/tmp/teesim` to `/sdcard/TEESimulator` as NDJSON records, so users can pull logs without root.
+- Removed the per-call undecodable `.bin` parcel dumps in favor of one NDJSON record per event carrying decoded fields plus base64 raw parcel.
+- Cleaned up dead native logging code and legacy dump helpers; `cargo ndk` builds are warning-clean.
+- Release installs correctly detect the absence of `diag.sh` by file presence rather than unzip exit code, so the debug directory is reliably purged.
+
+### Build & docs
+- Reverted NDK from 29 back to `27.3.13750724`: NDK 29's libc++ references `__cxa_init_primary_exception`, which the platform libc++ inside `keystore2` does not export and breaks injection.
+- Rewrote `README.md` in plain language with an ASCII flow diagram and clearer quick-start instructions.
+
+### Verified
+- Android 16: KeyAttestation generateKey PATCH with `deviceLocked=true` and `verifiedBootState=Verified`; libTEESimulator.so maps into keystore2.
+
+---
+
 ## TEESimulator-RS v6.0.1-282
 
 AUTO-mode key attestation now forges plain attestation from the keybox instead of deferring to the real TEE.
